@@ -267,7 +267,7 @@ Ninapro Database 5のセグメント化データが必要です。
 
 Apache License 2.0
 
-Copyright 2024
+Copyright 2025
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
