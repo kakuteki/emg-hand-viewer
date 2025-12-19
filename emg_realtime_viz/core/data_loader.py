@@ -5,15 +5,17 @@ Data Loader Module
 各種データセットの読み込みを担当
 """
 
-import numpy as np
-from pathlib import Path
-from typing import Dict, List, Optional, Generator, Tuple
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, Generator, List, Optional, Tuple
+
+import numpy as np
 
 
 @dataclass
 class Segment:
     """EMGセグメントデータ"""
+
     subject_id: int
     exercise_id: int
     movement: int
@@ -58,19 +60,21 @@ class NinaproLoader:
     def _load_data(self):
         """データの読み込み"""
         data = np.load(self.filepath, allow_pickle=True)
-        self._raw_segments = data['segments']
+        self._raw_segments = data["segments"]
         self._segments: List[Segment] = []
 
         for seg in self._raw_segments:
-            self._segments.append(Segment(
-                subject_id=int(seg['subject_id']),
-                exercise_id=int(seg['exercise_id']),
-                movement=int(seg['movement']),
-                repetition=int(seg['repetition']),
-                emg=seg['emg'].astype(np.float32),
-                glove=seg['glove'].astype(np.float32),
-                n_samples=int(seg['n_samples'])
-            ))
+            self._segments.append(
+                Segment(
+                    subject_id=int(seg["subject_id"]),
+                    exercise_id=int(seg["exercise_id"]),
+                    movement=int(seg["movement"]),
+                    repetition=int(seg["repetition"]),
+                    emg=seg["emg"].astype(np.float32),
+                    glove=seg["glove"].astype(np.float32),
+                    n_samples=int(seg["n_samples"]),
+                )
+            )
 
     def __len__(self) -> int:
         return len(self._segments)
@@ -109,7 +113,9 @@ class NinaproLoader:
         """利用可能な課題ID一覧"""
         return sorted(list(set(s.exercise_id for s in self._segments)))
 
-    def get_continuous_stream(self, subject_id: Optional[int] = None) -> Generator[Tuple[np.ndarray, np.ndarray, Dict], None, None]:
+    def get_continuous_stream(
+        self, subject_id: Optional[int] = None
+    ) -> Generator[Tuple[np.ndarray, np.ndarray, Dict], None, None]:
         """
         連続的なデータストリームを生成
 
@@ -132,12 +138,12 @@ class NinaproLoader:
         for seg in segments:
             for i in range(seg.n_samples):
                 yield (
-                    seg.emg[i:i+1],
-                    seg.glove[i:i+1],
+                    seg.emg[i : i + 1],
+                    seg.glove[i : i + 1],
                     {
-                        'subject_id': seg.subject_id,
-                        'movement': seg.movement,
-                        'exercise_id': seg.exercise_id,
-                        'sample_idx': i
-                    }
+                        "subject_id": seg.subject_id,
+                        "movement": seg.movement,
+                        "exercise_id": seg.exercise_id,
+                        "sample_idx": i,
+                    },
                 )

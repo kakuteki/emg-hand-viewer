@@ -17,21 +17,22 @@ EMG信号から手のポーズを推論し、リアルタイム3D表示
     data/    - データファイル (.npz) を配置
 """
 
-import sys
-import shutil
 import argparse
-import numpy as np
+import shutil
+import sys
 from pathlib import Path
-from typing import Optional, Dict, List, Callable
+from typing import Callable, Dict, List, Optional
+
+import numpy as np
 
 # ライブラリパス
 sys.path.insert(0, str(Path(__file__).parent))
 
 # PyQt5
-from PyQt5 import QtWidgets, QtCore
+import pyqtgraph.opengl as gl
+from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import QFileDialog, QMessageBox
-import pyqtgraph.opengl as gl
 
 from emg_realtime_viz.viz.hand_model import DualHandModel3D
 
@@ -245,16 +246,12 @@ class InferenceApp(QtWidgets.QMainWindow):
 
         self.gt_checkbox = QtWidgets.QCheckBox("Ground Truth (Blue)")
         self.gt_checkbox.setChecked(True)
-        self.gt_checkbox.toggled.connect(
-            lambda c: self.hand_model.ground_truth.set_visible(c)
-        )
+        self.gt_checkbox.toggled.connect(lambda c: self.hand_model.ground_truth.set_visible(c))
         display_layout.addWidget(self.gt_checkbox)
 
         self.pred_checkbox = QtWidgets.QCheckBox("Prediction (Green)")
         self.pred_checkbox.setChecked(True)
-        self.pred_checkbox.toggled.connect(
-            lambda c: self.hand_model.prediction.set_visible(c)
-        )
+        self.pred_checkbox.toggled.connect(lambda c: self.hand_model.prediction.set_visible(c))
         display_layout.addWidget(self.pred_checkbox)
 
         # 角度スケール
@@ -327,7 +324,7 @@ class InferenceApp(QtWidgets.QMainWindow):
             if model_path.exists():
                 self._load_pytorch_model(model_path)
             else:
-                self.model_info_label.setText(f"Error: File not found")
+                self.model_info_label.setText("Error: File not found")
 
     def _load_pytorch_model(self, model_path: Path):
         """PyTorchモデルをロード"""
@@ -337,14 +334,14 @@ class InferenceApp(QtWidgets.QMainWindow):
             self.status_label.setText(f"Loading model: {model_path.name}...")
             QtWidgets.QApplication.processEvents()
 
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
             # モデルをロード
             model = torch.load(str(model_path), map_location=device)
             model.eval()
 
             # 推論関数を作成
-            state = {'prev': None}
+            state = {"prev": None}
 
             def inference(emg: np.ndarray) -> np.ndarray:
                 with torch.no_grad():
@@ -368,9 +365,9 @@ class InferenceApp(QtWidgets.QMainWindow):
                         y = angles
 
                     # スムージング
-                    if state['prev'] is not None:
-                        y = 0.3 * y + 0.7 * state['prev']
-                    state['prev'] = y
+                    if state["prev"] is not None:
+                        y = 0.3 * y + 0.7 * state["prev"]
+                    state["prev"] = y
 
                     return y
 
@@ -382,16 +379,14 @@ class InferenceApp(QtWidgets.QMainWindow):
         except Exception as e:
             self.model_info_label.setText(f"Error: {str(e)[:100]}")
             self.inference_model = self._create_demo_model()
-            QMessageBox.warning(self, "Model Load Error",
-                              f"Failed to load model:\n{e}\n\nUsing demo model.")
+            QMessageBox.warning(
+                self, "Model Load Error", f"Failed to load model:\n{e}\n\nUsing demo model."
+            )
 
     def _import_model(self):
         """モデルをインポート"""
         file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Import Model",
-            str(Path.home()),
-            "PyTorch Models (*.pth *.pt);;All Files (*)"
+            self, "Import Model", str(Path.home()), "PyTorch Models (*.pth *.pt);;All Files (*)"
         )
 
         if file_path:
@@ -401,9 +396,10 @@ class InferenceApp(QtWidgets.QMainWindow):
             # コピー確認
             if dst_path.exists():
                 reply = QMessageBox.question(
-                    self, "Confirm Overwrite",
+                    self,
+                    "Confirm Overwrite",
                     f"'{src_path.name}' already exists.\nOverwrite?",
-                    QMessageBox.Yes | QMessageBox.No
+                    QMessageBox.Yes | QMessageBox.No,
                 )
                 if reply != QMessageBox.Yes:
                     return
@@ -469,12 +465,12 @@ class InferenceApp(QtWidgets.QMainWindow):
 
         try:
             data = np.load(str(data_path), allow_pickle=True)
-            self.segments = list(data['segments'])
+            self.segments = list(data["segments"])
             self.current_data_path = data_path
 
             # 利用可能なsubject/movementを取得
-            self.subjects = sorted(set(seg['subject_id'] for seg in self.segments))
-            self.movements = sorted(set(seg['movement'] for seg in self.segments))
+            self.subjects = sorted(set(seg["subject_id"] for seg in self.segments))
+            self.movements = sorted(set(seg["movement"] for seg in self.segments))
 
             # コンボボックスを更新
             self.subject_combo.blockSignals(True)
@@ -511,10 +507,7 @@ class InferenceApp(QtWidgets.QMainWindow):
     def _import_data(self):
         """データをインポート"""
         file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Import Data",
-            str(Path.home()),
-            "NumPy Files (*.npz *.npy);;All Files (*)"
+            self, "Import Data", str(Path.home()), "NumPy Files (*.npz *.npy);;All Files (*)"
         )
 
         if file_path:
@@ -524,9 +517,10 @@ class InferenceApp(QtWidgets.QMainWindow):
             # コピー確認
             if dst_path.exists():
                 reply = QMessageBox.question(
-                    self, "Confirm Overwrite",
+                    self,
+                    "Confirm Overwrite",
                     f"'{src_path.name}' already exists.\nOverwrite?",
-                    QMessageBox.Yes | QMessageBox.No
+                    QMessageBox.Yes | QMessageBox.No,
                 )
                 if reply != QMessageBox.Yes:
                     return
@@ -557,8 +551,9 @@ class InferenceApp(QtWidgets.QMainWindow):
             return
 
         self.current_segments = [
-            seg for seg in self.segments
-            if seg['subject_id'] == subject and seg['movement'] == movement
+            seg
+            for seg in self.segments
+            if seg["subject_id"] == subject and seg["movement"] == movement
         ]
 
         self.segment_label.setText(f"Segments: {len(self.current_segments)}")
@@ -622,8 +617,8 @@ class InferenceApp(QtWidgets.QMainWindow):
             return
 
         segment = self.current_segments[self.current_seg_idx]
-        emg = segment['emg']      # (T, 16)
-        glove = segment['glove']  # (T, 22)
+        emg = segment["emg"]  # (T, 16)
+        glove = segment["glove"]  # (T, 22)
         n_frames = emg.shape[0]
 
         # EMGデータ
@@ -647,11 +642,11 @@ class InferenceApp(QtWidgets.QMainWindow):
         self.hand_model.prediction.update_from_angles(pred_angles, scale)
 
         # UI更新
-        total_frames = sum(seg['emg'].shape[0] for seg in self.current_segments)
-        current_total = sum(
-            self.current_segments[i]['emg'].shape[0]
-            for i in range(self.current_seg_idx)
-        ) + self.current_frame_idx
+        total_frames = sum(seg["emg"].shape[0] for seg in self.current_segments)
+        current_total = (
+            sum(self.current_segments[i]["emg"].shape[0] for i in range(self.current_seg_idx))
+            + self.current_frame_idx
+        )
 
         progress = int(100 * current_total / total_frames) if total_frames > 0 else 0
         self.progress_bar.setValue(progress)
@@ -673,22 +668,58 @@ class InferenceApp(QtWidgets.QMainWindow):
 
     def _normalize_glove(self, glove: np.ndarray) -> np.ndarray:
         """Gloveデータを正規化"""
-        glove_min = np.array([
-            -30, -30, -10, -10,
-            -20, -10, -10, -10,
-            -20, -10, -10, -10,
-            -20, -10, -10, -10,
-            -20, -10, -10, -10,
-            0, 0
-        ])
-        glove_max = np.array([
-            100, 100, 100, 100,
-            120, 100, 100, 100,
-            120, 100, 100, 100,
-            120, 100, 100, 100,
-            120, 100, 100, 100,
-            50, 50
-        ])
+        glove_min = np.array(
+            [
+                -30,
+                -30,
+                -10,
+                -10,
+                -20,
+                -10,
+                -10,
+                -10,
+                -20,
+                -10,
+                -10,
+                -10,
+                -20,
+                -10,
+                -10,
+                -10,
+                -20,
+                -10,
+                -10,
+                -10,
+                0,
+                0,
+            ]
+        )
+        glove_max = np.array(
+            [
+                100,
+                100,
+                100,
+                100,
+                120,
+                100,
+                100,
+                100,
+                120,
+                100,
+                100,
+                100,
+                120,
+                100,
+                100,
+                100,
+                120,
+                100,
+                100,
+                100,
+                50,
+                50,
+            ]
+        )
 
         normalized = (glove - glove_min) / (glove_max - glove_min + 1e-8)
         normalized = np.clip(normalized, 0, 1)
@@ -704,7 +735,7 @@ class InferenceApp(QtWidgets.QMainWindow):
 
     def _create_demo_model(self) -> Callable:
         """デモ用推論モデル"""
-        state = {'prev': np.zeros(20)}
+        state = {"prev": np.zeros(20)}
 
         def inference(emg: np.ndarray) -> np.ndarray:
             energy = np.abs(emg)
@@ -723,8 +754,8 @@ class InferenceApp(QtWidgets.QMainWindow):
                     angles[base + joint] = finger_energy * (0.7 + joint * 0.1)
 
             # スムージング
-            smoothed = 0.3 * angles + 0.7 * state['prev']
-            state['prev'] = smoothed
+            smoothed = 0.3 * angles + 0.7 * state["prev"]
+            state["prev"] = smoothed
 
             return np.clip(smoothed, 0, 1)
 
@@ -737,9 +768,9 @@ class InferenceApp(QtWidgets.QMainWindow):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='EMG Inference Application')
-    parser.add_argument('--model', '-m', type=str, help='Initial model path')
-    parser.add_argument('--data', '-d', type=str, help='Initial data path')
+    parser = argparse.ArgumentParser(description="EMG Inference Application")
+    parser.add_argument("--model", "-m", type=str, help="Initial model path")
+    parser.add_argument("--data", "-d", type=str, help="Initial data path")
 
     args = parser.parse_args()
 
@@ -774,5 +805,5 @@ def main():
     sys.exit(app.exec_())
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

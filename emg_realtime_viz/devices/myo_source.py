@@ -14,12 +14,12 @@ Myo Connectが起動している必要があります。
 Windows: Myo Connect をインストールして起動
 """
 
-import numpy as np
-from typing import Generator, Tuple, Dict, Any, Optional, Callable
-from collections import deque
-import time
 import threading
-from queue import Queue, Empty
+import time
+from queue import Empty, Queue
+from typing import Any, Dict, Generator, Optional, Tuple
+
+import numpy as np
 
 from .base import RealtimeDataSource
 
@@ -28,14 +28,16 @@ MYO_BACKEND = None
 
 try:
     from pyomyo import Myo, emg_mode
-    MYO_BACKEND = 'pyomyo'
+
+    MYO_BACKEND = "pyomyo"
 except ImportError:
     pass
 
 if MYO_BACKEND is None:
     try:
         import myo
-        MYO_BACKEND = 'myo-python'
+
+        MYO_BACKEND = "myo-python"
     except ImportError:
         pass
 
@@ -75,7 +77,7 @@ class MyoDataSource(RealtimeDataSource):
         n_channels: int = 8,
         sample_rate: float = 200.0,
         buffer_size: int = 1000,
-        emg_mode: str = 'filtered'
+        emg_mode: str = "filtered",
     ):
         super().__init__(n_channels, sample_rate)
         self.buffer_size = buffer_size
@@ -107,9 +109,9 @@ class MyoDataSource(RealtimeDataSource):
                 "  pip install myo-python"
             )
 
-        if MYO_BACKEND == 'pyomyo':
+        if MYO_BACKEND == "pyomyo":
             self._init_pyomyo()
-        elif MYO_BACKEND == 'myo-python':
+        elif MYO_BACKEND == "myo-python":
             self._init_myo_python()
 
     def _init_pyomyo(self):
@@ -119,7 +121,7 @@ class MyoDataSource(RealtimeDataSource):
         print("Myo Armbandに接続中 (pyomyo)...")
 
         # EMGモード設定
-        if self._emg_mode == 'raw':
+        if self._emg_mode == "raw":
             mode = emg_mode.RAW
         else:
             mode = emg_mode.FILTERED
@@ -161,14 +163,14 @@ class MyoDataSource(RealtimeDataSource):
 
     def _on_imu_pyomyo(self, quat, acc, gyro):
         """pyomyo IMUコールバック"""
-        self._imu_data['quaternion'] = np.array(quat)
-        self._imu_data['acceleration'] = np.array(acc)
-        self._imu_data['gyroscope'] = np.array(gyro)
+        self._imu_data["quaternion"] = np.array(quat)
+        self._imu_data["acceleration"] = np.array(acc)
+        self._imu_data["gyroscope"] = np.array(gyro)
 
     def _read_sample(self) -> np.ndarray:
         """1サンプル読み取り"""
         # pyomyoの場合はrun()を呼ぶ必要がある
-        if MYO_BACKEND == 'pyomyo' and self._myo:
+        if MYO_BACKEND == "pyomyo" and self._myo:
             self._myo.run()
 
         try:
@@ -188,7 +190,7 @@ class MyoDataSource(RealtimeDataSource):
             self._sample_count = 0
 
             # myo-pythonの場合はバックグラウンドスレッド開始
-            if MYO_BACKEND == 'myo-python' and self._hub:
+            if MYO_BACKEND == "myo-python" and self._hub:
                 self._read_thread = threading.Thread(target=self._myo_python_loop)
                 self._read_thread.daemon = True
                 self._read_thread.start()
@@ -200,7 +202,6 @@ class MyoDataSource(RealtimeDataSource):
 
     def _myo_python_loop(self):
         """myo-python用のバックグラウンドループ"""
-        import myo
         while not self._stop_event.is_set():
             self._hub.run(self._listener.on_event, 500)
 
@@ -212,14 +213,14 @@ class MyoDataSource(RealtimeDataSource):
         if self._read_thread and self._read_thread.is_alive():
             self._read_thread.join(timeout=2.0)
 
-        if MYO_BACKEND == 'pyomyo' and self._myo:
+        if MYO_BACKEND == "pyomyo" and self._myo:
             try:
                 self._myo.disconnect()
             except:
                 pass
             self._myo = None
 
-        if MYO_BACKEND == 'myo-python' and self._hub:
+        if MYO_BACKEND == "myo-python" and self._hub:
             try:
                 self._hub.shutdown()
             except:
@@ -228,7 +229,9 @@ class MyoDataSource(RealtimeDataSource):
 
         print("Myo切断完了")
 
-    def stream(self) -> Generator[Tuple[np.ndarray, Optional[np.ndarray], Dict[str, Any]], None, None]:
+    def stream(
+        self,
+    ) -> Generator[Tuple[np.ndarray, Optional[np.ndarray], Dict[str, Any]], None, None]:
         """データストリーム生成"""
         if not self._connected:
             raise RuntimeError("Not connected. Call connect() first.")
@@ -236,7 +239,7 @@ class MyoDataSource(RealtimeDataSource):
         while self._connected:
             try:
                 # pyomyoの場合は明示的にrun()を呼ぶ
-                if MYO_BACKEND == 'pyomyo' and self._myo:
+                if MYO_BACKEND == "pyomyo" and self._myo:
                     self._myo.run()
 
                 # キューからデータ取得
@@ -248,11 +251,11 @@ class MyoDataSource(RealtimeDataSource):
                 # メタデータ
                 elapsed = time.time() - self._start_time if self._start_time else 0
                 metadata = {
-                    'timestamp': timestamp,
-                    'elapsed': elapsed,
-                    'sample_count': self._sample_count,
-                    'backend': MYO_BACKEND,
-                    'imu': self._imu_data.copy() if self._imu_data else None
+                    "timestamp": timestamp,
+                    "elapsed": elapsed,
+                    "sample_count": self._sample_count,
+                    "backend": MYO_BACKEND,
+                    "imu": self._imu_data.copy() if self._imu_data else None,
                 }
 
                 yield emg, None, metadata
@@ -261,7 +264,7 @@ class MyoDataSource(RealtimeDataSource):
                 print(f"Stream error: {e}")
                 break
 
-    def vibrate(self, duration: str = 'short'):
+    def vibrate(self, duration: str = "short"):
         """
         Myoを振動させる
 
@@ -270,7 +273,7 @@ class MyoDataSource(RealtimeDataSource):
         duration : str
             'short', 'medium', 'long'
         """
-        if MYO_BACKEND == 'pyomyo' and self._myo:
+        if MYO_BACKEND == "pyomyo" and self._myo:
             self._myo.vibrate(duration)
 
     @property
@@ -311,22 +314,15 @@ class _MyoPythonListener:
                     pass
 
         elif event.type == myo.EventType.orientation:
-            self._imu_data['quaternion'] = np.array([
-                event.orientation.x,
-                event.orientation.y,
-                event.orientation.z,
-                event.orientation.w
-            ])
-            self._imu_data['acceleration'] = np.array([
-                event.acceleration.x,
-                event.acceleration.y,
-                event.acceleration.z
-            ])
-            self._imu_data['gyroscope'] = np.array([
-                event.gyroscope.x,
-                event.gyroscope.y,
-                event.gyroscope.z
-            ])
+            self._imu_data["quaternion"] = np.array(
+                [event.orientation.x, event.orientation.y, event.orientation.z, event.orientation.w]
+            )
+            self._imu_data["acceleration"] = np.array(
+                [event.acceleration.x, event.acceleration.y, event.acceleration.z]
+            )
+            self._imu_data["gyroscope"] = np.array(
+                [event.gyroscope.x, event.gyroscope.y, event.gyroscope.z]
+            )
 
 
 class SimulatedMyoSource(RealtimeDataSource):
@@ -345,12 +341,7 @@ class SimulatedMyoSource(RealtimeDataSource):
         ノイズレベル
     """
 
-    def __init__(
-        self,
-        n_channels: int = 8,
-        sample_rate: float = 200.0,
-        noise_level: float = 0.1
-    ):
+    def __init__(self, n_channels: int = 8, sample_rate: float = 200.0, noise_level: float = 0.1):
         super().__init__(n_channels, sample_rate)
         self.noise_level = noise_level
         self._sample_idx = 0
@@ -375,9 +366,9 @@ class SimulatedMyoSource(RealtimeDataSource):
             freq2 = 50 + ch * 10
 
             signal = (
-                0.3 * np.sin(2 * np.pi * freq1 * t + ch) +
-                0.2 * np.sin(2 * np.pi * freq2 * t + ch * 0.5) +
-                self.noise_level * np.random.randn()
+                0.3 * np.sin(2 * np.pi * freq1 * t + ch)
+                + 0.2 * np.sin(2 * np.pi * freq2 * t + ch * 0.5)
+                + self.noise_level * np.random.randn()
             )
 
             # 間欠的な筋活動をシミュレート
@@ -396,7 +387,9 @@ class SimulatedMyoSource(RealtimeDataSource):
 
         return emg.reshape(1, -1).astype(np.float32)
 
-    def stream(self) -> Generator[Tuple[np.ndarray, Optional[np.ndarray], Dict[str, Any]], None, None]:
+    def stream(
+        self,
+    ) -> Generator[Tuple[np.ndarray, Optional[np.ndarray], Dict[str, Any]], None, None]:
         """ストリーム生成"""
         if not self._connected:
             raise RuntimeError("Not connected. Call connect() first.")
@@ -404,11 +397,7 @@ class SimulatedMyoSource(RealtimeDataSource):
         while self._connected:
             emg = self._read_sample()
 
-            metadata = {
-                'timestamp': time.time(),
-                'sample_idx': self._sample_idx,
-                'simulated': True
-            }
+            metadata = {"timestamp": time.time(), "sample_idx": self._sample_idx, "simulated": True}
 
             yield emg, None, metadata
 

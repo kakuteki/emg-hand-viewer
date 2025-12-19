@@ -7,11 +7,12 @@ EMG信号と推論結果（手のポーズ）を同時に可視化
 
 from __future__ import annotations
 
-import numpy as np
-from typing import Optional, Dict, Any, Callable, List, Tuple
+import time
 from collections import deque
 from pathlib import Path
-import time
+from typing import Callable, Dict, Optional
+
+import numpy as np
 
 # PyQt5 / PyQtGraph imports
 HAS_PYQT = False
@@ -23,10 +24,12 @@ pg = None
 gl = None
 
 try:
-    from PyQt5 import QtWidgets as _QtWidgets, QtCore as _QtCore
-    from PyQt5.QtCore import Qt as _Qt, QTimer as _QTimer
     import pyqtgraph as _pg
     import pyqtgraph.opengl as _gl
+    from PyQt5 import QtCore as _QtCore
+    from PyQt5 import QtWidgets as _QtWidgets
+    from PyQt5.QtCore import Qt as _Qt
+    from PyQt5.QtCore import QTimer as _QTimer
 
     QtWidgets = _QtWidgets
     QtCore = _QtCore
@@ -38,10 +41,9 @@ try:
 except ImportError:
     pass
 
-from ..devices.base import DataSource
-from ..devices.file_source import NinaproDataSource
 from ..core.feature_extractor import FeatureExtractor
-from .hand_model import HandModel3D, DualHandModel3D, HandSkeleton
+from ..devices.file_source import NinaproDataSource
+from .hand_model import DualHandModel3D
 
 
 class HandVisualizer:
@@ -71,7 +73,7 @@ class HandVisualizer:
         show_prediction: bool = True,
         window_size: int = 20,
         update_interval: int = 10,
-        playback_speed: float = 1.0
+        playback_speed: float = 1.0,
     ):
         if not HAS_PYQT:
             raise ImportError("PyQt5 and pyqtgraph are required")
@@ -125,7 +127,7 @@ class HandVisualizer:
         import numpy as np
 
         data = np.load(self.filepath, allow_pickle=True)
-        segments = data['segments']
+        segments = data["segments"]
 
         # 利用可能な被験者・動作・エクササイズを収集
         self._subjects = set()
@@ -134,23 +136,25 @@ class HandVisualizer:
         self._segment_info = []
 
         for seg in segments:
-            if hasattr(seg, 'item'):
+            if hasattr(seg, "item"):
                 seg = seg.item()
 
-            subject_id = seg.get('subject_id', 0)
-            movement = seg.get('movement', 0)
-            exercise_id = seg.get('exercise_id', 0)
-            repetition = seg.get('repetition', 0)
+            subject_id = seg.get("subject_id", 0)
+            movement = seg.get("movement", 0)
+            exercise_id = seg.get("exercise_id", 0)
+            repetition = seg.get("repetition", 0)
 
             self._subjects.add(subject_id)
             self._movements.add(movement)
             self._exercises.add(exercise_id)
-            self._segment_info.append({
-                'subject_id': subject_id,
-                'movement': movement,
-                'exercise_id': exercise_id,
-                'repetition': repetition
-            })
+            self._segment_info.append(
+                {
+                    "subject_id": subject_id,
+                    "movement": movement,
+                    "exercise_id": exercise_id,
+                    "repetition": repetition,
+                }
+            )
 
         self._subjects = sorted(self._subjects)
         self._movements = sorted(self._movements)
@@ -158,7 +162,9 @@ class HandVisualizer:
 
         print(f"Dataset loaded: {len(segments)} segments")
         print(f"  Subjects: {self._subjects}")
-        print(f"  Movements: {min(self._movements)}-{max(self._movements)} ({len(self._movements)} types)")
+        print(
+            f"  Movements: {min(self._movements)}-{max(self._movements)} ({len(self._movements)} types)"
+        )
         print(f"  Exercises: {self._exercises}")
 
     def _create_source(self, subject_id: int, movement: int):
@@ -173,14 +179,14 @@ class HandVisualizer:
             movements=[movement],
             loop=True,
             n_channels=16,
-            sample_rate=200.0
+            sample_rate=200.0,
         )
 
         # 特徴量抽出器を初期化
         self.feature_extractor = FeatureExtractor(
             window_size=self.window_size,
             n_channels=self.source.n_channels,
-            features=['mav', 'rms', 'var', 'wl']
+            features=["mav", "rms", "var", "wl"],
         )
 
         self._current_subject = subject_id
@@ -196,7 +202,7 @@ class HandVisualizer:
 
         # メインウィンドウ
         self._window = QtWidgets.QMainWindow()
-        self._window.setWindowTitle('EMG Hand Visualizer - Ninapro DB5')
+        self._window.setWindowTitle("EMG Hand Visualizer - Ninapro DB5")
         self._window.resize(1400, 900)
 
         # 中央ウィジェット
@@ -240,7 +246,7 @@ class HandVisualizer:
 
         # ステータスバー
         self._status_bar = self._window.statusBar()
-        self._status_bar.showMessage('Ready - Select data and press Play')
+        self._status_bar.showMessage("Ready - Select data and press Play")
 
     def _create_control_panel(self) -> QtWidgets.QWidget:
         """コントロールパネル作成"""
@@ -248,12 +254,12 @@ class HandVisualizer:
         layout = QtWidgets.QVBoxLayout(panel)
 
         # タイトル
-        title = QtWidgets.QLabel('Hand Visualizer')
-        title.setStyleSheet('font-size: 16px; font-weight: bold;')
+        title = QtWidgets.QLabel("Hand Visualizer")
+        title.setStyleSheet("font-size: 16px; font-weight: bold;")
         layout.addWidget(title)
 
         # データ選択グループ
-        data_group = QtWidgets.QGroupBox('Data Selection')
+        data_group = QtWidgets.QGroupBox("Data Selection")
         data_layout = QtWidgets.QFormLayout(data_group)
 
         # 被験者選択
@@ -261,38 +267,38 @@ class HandVisualizer:
         for s in self._subjects:
             self._subject_combo.addItem(f"Subject {s}", s)
         self._subject_combo.currentIndexChanged.connect(self._on_data_selection_changed)
-        data_layout.addRow('Subject:', self._subject_combo)
+        data_layout.addRow("Subject:", self._subject_combo)
 
         # 動作選択
         self._movement_combo = QtWidgets.QComboBox()
         for m in self._movements:
             self._movement_combo.addItem(f"Movement {m}", m)
         self._movement_combo.currentIndexChanged.connect(self._on_data_selection_changed)
-        data_layout.addRow('Movement:', self._movement_combo)
+        data_layout.addRow("Movement:", self._movement_combo)
 
         layout.addWidget(data_group)
 
         # 再生コントロール
-        playback_group = QtWidgets.QGroupBox('Playback')
+        playback_group = QtWidgets.QGroupBox("Playback")
         playback_layout = QtWidgets.QHBoxLayout(playback_group)
 
-        self._btn_play = QtWidgets.QPushButton('▶ Play')
+        self._btn_play = QtWidgets.QPushButton("▶ Play")
         self._btn_play.clicked.connect(self._on_play)
         playback_layout.addWidget(self._btn_play)
 
-        self._btn_pause = QtWidgets.QPushButton('⏸ Pause')
+        self._btn_pause = QtWidgets.QPushButton("⏸ Pause")
         self._btn_pause.clicked.connect(self._on_pause)
         self._btn_pause.setEnabled(False)
         playback_layout.addWidget(self._btn_pause)
 
-        self._btn_reset = QtWidgets.QPushButton('⏹ Reset')
+        self._btn_reset = QtWidgets.QPushButton("⏹ Reset")
         self._btn_reset.clicked.connect(self._on_reset)
         playback_layout.addWidget(self._btn_reset)
 
         layout.addWidget(playback_group)
 
         # 速度コントロール
-        speed_group = QtWidgets.QGroupBox('Speed')
+        speed_group = QtWidgets.QGroupBox("Speed")
         speed_layout = QtWidgets.QVBoxLayout(speed_group)
 
         self._speed_slider = QtWidgets.QSlider(Qt.Horizontal)
@@ -301,26 +307,26 @@ class HandVisualizer:
         self._speed_slider.valueChanged.connect(self._on_speed_change)
         speed_layout.addWidget(self._speed_slider)
 
-        self._speed_label = QtWidgets.QLabel(f'Speed: {self.playback_speed:.1f}x')
+        self._speed_label = QtWidgets.QLabel(f"Speed: {self.playback_speed:.1f}x")
         speed_layout.addWidget(self._speed_label)
 
         layout.addWidget(speed_group)
 
         # 表示設定
-        display_group = QtWidgets.QGroupBox('Display')
+        display_group = QtWidgets.QGroupBox("Display")
         display_layout = QtWidgets.QVBoxLayout(display_group)
 
-        self._cb_show_gt = QtWidgets.QCheckBox('Ground Truth (Blue)')
+        self._cb_show_gt = QtWidgets.QCheckBox("Ground Truth (Blue)")
         self._cb_show_gt.setChecked(self.show_ground_truth)
         self._cb_show_gt.toggled.connect(self._on_toggle_gt)
         display_layout.addWidget(self._cb_show_gt)
 
-        self._cb_show_pred = QtWidgets.QCheckBox('Prediction (Green)')
+        self._cb_show_pred = QtWidgets.QCheckBox("Prediction (Green)")
         self._cb_show_pred.setChecked(self.show_prediction)
         self._cb_show_pred.toggled.connect(self._on_toggle_pred)
         display_layout.addWidget(self._cb_show_pred)
 
-        self._cb_show_emg = QtWidgets.QCheckBox('EMG Trajectory')
+        self._cb_show_emg = QtWidgets.QCheckBox("EMG Trajectory")
         self._cb_show_emg.setChecked(True)
         self._cb_show_emg.toggled.connect(self._on_toggle_emg)
         display_layout.addWidget(self._cb_show_emg)
@@ -328,7 +334,7 @@ class HandVisualizer:
         layout.addWidget(display_group)
 
         # 角度スケール
-        scale_group = QtWidgets.QGroupBox('Angle Scale')
+        scale_group = QtWidgets.QGroupBox("Angle Scale")
         scale_layout = QtWidgets.QVBoxLayout(scale_group)
 
         self._angle_scale_slider = QtWidgets.QSlider(Qt.Horizontal)
@@ -336,21 +342,21 @@ class HandVisualizer:
         self._angle_scale_slider.setValue(10)
         scale_layout.addWidget(self._angle_scale_slider)
 
-        self._angle_scale_label = QtWidgets.QLabel('Scale: 1.0')
+        self._angle_scale_label = QtWidgets.QLabel("Scale: 1.0")
         self._angle_scale_slider.valueChanged.connect(
-            lambda v: self._angle_scale_label.setText(f'Scale: {v/10:.1f}')
+            lambda v: self._angle_scale_label.setText(f"Scale: {v / 10:.1f}")
         )
         scale_layout.addWidget(self._angle_scale_label)
 
         layout.addWidget(scale_group)
 
         # 情報表示
-        info_group = QtWidgets.QGroupBox('Information')
+        info_group = QtWidgets.QGroupBox("Information")
         info_layout = QtWidgets.QVBoxLayout(info_group)
 
         self._info_labels = {}
-        for key in ['Subject', 'Movement', 'Sample', 'Segments', 'FPS', 'Error']:
-            label = QtWidgets.QLabel(f'{key}: --')
+        for key in ["Subject", "Movement", "Sample", "Segments", "FPS", "Error"]:
+            label = QtWidgets.QLabel(f"{key}: --")
             self._info_labels[key] = label
             info_layout.addWidget(label)
 
@@ -360,11 +366,11 @@ class HandVisualizer:
         layout.addStretch()
 
         # レジェンド
-        legend_group = QtWidgets.QGroupBox('Legend')
+        legend_group = QtWidgets.QGroupBox("Legend")
         legend_layout = QtWidgets.QVBoxLayout(legend_group)
-        legend_layout.addWidget(QtWidgets.QLabel('🔵 Ground Truth (Left)'))
-        legend_layout.addWidget(QtWidgets.QLabel('🟢 Prediction (Right)'))
-        legend_layout.addWidget(QtWidgets.QLabel('🟣 EMG Trajectory (Center)'))
+        legend_layout.addWidget(QtWidgets.QLabel("🔵 Ground Truth (Left)"))
+        legend_layout.addWidget(QtWidgets.QLabel("🟢 Prediction (Right)"))
+        legend_layout.addWidget(QtWidgets.QLabel("🟣 EMG Trajectory (Center)"))
         layout.addWidget(legend_group)
 
         return panel
@@ -375,7 +381,7 @@ class HandVisualizer:
         if self._running:
             self._on_reset()
 
-        self._status_bar.showMessage('Data selection changed - Press Play to start')
+        self._status_bar.showMessage("Data selection changed - Press Play to start")
 
     def _on_play(self):
         """再生"""
@@ -411,12 +417,12 @@ class HandVisualizer:
         self._update_emg_scatter()
         self._btn_play.setEnabled(True)
         self._btn_pause.setEnabled(False)
-        self._status_bar.showMessage('Reset')
+        self._status_bar.showMessage("Reset")
 
     def _on_speed_change(self, value):
         """速度変更"""
         self.playback_speed = value / 10.0
-        self._speed_label.setText(f'Speed: {self.playback_speed:.1f}x')
+        self._speed_label.setText(f"Speed: {self.playback_speed:.1f}x")
 
     def _on_toggle_gt(self, checked):
         """実測値表示切替"""
@@ -441,11 +447,11 @@ class HandVisualizer:
         self._create_source(subject_id, movement)
 
         if not self.source.connect():
-            self._status_bar.showMessage('Failed to connect to data source')
+            self._status_bar.showMessage("Failed to connect to data source")
             return
 
         # セグメント数を表示
-        self._info_labels['Segments'].setText(f"Segments: {self.source.total_segments}")
+        self._info_labels["Segments"].setText(f"Segments: {self.source.total_segments}")
 
         self._data_generator = self.source.stream()
         self._running = True
@@ -463,7 +469,7 @@ class HandVisualizer:
             self._timer.timeout.connect(self._update)
         self._timer.start(self.update_interval)
 
-        self._status_bar.showMessage(f'Streaming: Subject {subject_id}, Movement {movement}')
+        self._status_bar.showMessage(f"Streaming: Subject {subject_id}, Movement {movement}")
         self._last_update_time = time.time()
         self._frame_count = 0
 
@@ -517,7 +523,7 @@ class HandVisualizer:
             elapsed = time.time() - self._last_update_time
             if elapsed >= 1.0:
                 fps = self._frame_count / elapsed
-                self._info_labels['FPS'].setText(f'FPS: {fps:.1f}')
+                self._info_labels["FPS"].setText(f"FPS: {fps:.1f}")
                 self._frame_count = 0
                 self._last_update_time = time.time()
 
@@ -528,7 +534,7 @@ class HandVisualizer:
             self._btn_pause.setEnabled(False)
             self._subject_combo.setEnabled(True)
             self._movement_combo.setEnabled(True)
-            self._status_bar.showMessage('End of data')
+            self._status_bar.showMessage("End of data")
 
     def _update_emg_trail(self, features: np.ndarray, metadata: Dict):
         """EMG軌跡を更新"""
@@ -563,23 +569,59 @@ class HandVisualizer:
 
     def _normalize_glove_data(self, glove: np.ndarray) -> np.ndarray:
         """Ninapro DB5のgloveデータを0-1の範囲に正規化"""
-        glove_min = np.array([
-            -30, -30, -10, -10,
-            -10, -10, -10, -10,
-            -30, -30, -10, -10,
-            -30, -30, -10, -10,
-            -10, -10, -10, -10,
-            -10, -10
-        ])
+        glove_min = np.array(
+            [
+                -30,
+                -30,
+                -10,
+                -10,
+                -10,
+                -10,
+                -10,
+                -10,
+                -30,
+                -30,
+                -10,
+                -10,
+                -30,
+                -30,
+                -10,
+                -10,
+                -10,
+                -10,
+                -10,
+                -10,
+                -10,
+                -10,
+            ]
+        )
 
-        glove_max = np.array([
-            100, 100, 100, 100,
-            100, 100, 100, 100,
-            500, 100, 100, 100,
-            100, 100, 100, 100,
-            100, 100, 100, 100,
-            100, 100
-        ])
+        glove_max = np.array(
+            [
+                100,
+                100,
+                100,
+                100,
+                100,
+                100,
+                100,
+                100,
+                500,
+                100,
+                100,
+                100,
+                100,
+                100,
+                100,
+                100,
+                100,
+                100,
+                100,
+                100,
+                100,
+                100,
+            ]
+        )
 
         normalized = (glove - glove_min) / (glove_max - glove_min + 1e-8)
         normalized = np.clip(normalized, 0, 1)
@@ -596,33 +638,30 @@ class HandVisualizer:
     def _update_hand_models(self, angle_scale: float):
         """手モデル更新"""
         if self._current_gt_angles is not None and self.show_ground_truth:
-            self._hand_model.ground_truth.update_from_angles(
-                self._current_gt_angles, angle_scale
-            )
+            self._hand_model.ground_truth.update_from_angles(self._current_gt_angles, angle_scale)
 
         if self._current_pred_angles is not None and self.show_prediction:
-            self._hand_model.prediction.update_from_angles(
-                self._current_pred_angles, angle_scale
-            )
+            self._hand_model.prediction.update_from_angles(self._current_pred_angles, angle_scale)
 
-        if (self._current_gt_angles is not None and
-            self._current_pred_angles is not None):
-            error = np.mean(np.abs(
-                self._current_gt_angles[:len(self._current_pred_angles)] -
-                self._current_pred_angles[:len(self._current_gt_angles)]
-            ))
-            self._info_labels['Error'].setText(f'Error: {error:.4f}')
+        if self._current_gt_angles is not None and self._current_pred_angles is not None:
+            error = np.mean(
+                np.abs(
+                    self._current_gt_angles[: len(self._current_pred_angles)]
+                    - self._current_pred_angles[: len(self._current_gt_angles)]
+                )
+            )
+            self._info_labels["Error"].setText(f"Error: {error:.4f}")
 
     def _update_info(self, metadata: Dict):
         """情報更新"""
         if metadata:
-            if 'subject_id' in metadata:
-                self._info_labels['Subject'].setText(f"Subject: {metadata['subject_id']}")
-            if 'movement' in metadata:
-                self._info_labels['Movement'].setText(f"Movement: {metadata['movement']}")
-            if 'sample_idx' in metadata:
-                total = metadata.get('total_samples', '?')
-                self._info_labels['Sample'].setText(f"Sample: {metadata['sample_idx']}/{total}")
+            if "subject_id" in metadata:
+                self._info_labels["Subject"].setText(f"Subject: {metadata['subject_id']}")
+            if "movement" in metadata:
+                self._info_labels["Movement"].setText(f"Movement: {metadata['movement']}")
+            if "sample_idx" in metadata:
+                total = metadata.get("total_samples", "?")
+                self._info_labels["Sample"].setText(f"Sample: {metadata['sample_idx']}/{total}")
 
     def run(self):
         """アプリケーション実行"""

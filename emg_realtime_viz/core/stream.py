@@ -5,17 +5,19 @@ Data Stream Module
 リアルタイムデータストリーミング処理
 """
 
-import numpy as np
-import threading
 import queue
+import threading
 import time
-from typing import Optional, Callable, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Callable, Dict, Optional
+
+import numpy as np
 
 
 class StreamState(Enum):
     """ストリームの状態"""
+
     STOPPED = "stopped"
     RUNNING = "running"
     PAUSED = "paused"
@@ -24,6 +26,7 @@ class StreamState(Enum):
 @dataclass
 class StreamData:
     """ストリームデータパケット"""
+
     timestamp: float
     emg: np.ndarray
     glove: Optional[np.ndarray] = None
@@ -61,7 +64,7 @@ class DataStream:
         source,  # DataSource
         buffer_size: int = 1000,
         playback_speed: float = 1.0,
-        sample_rate: float = 200.0
+        sample_rate: float = 200.0,
     ):
         self.source = source
         self.buffer_size = buffer_size
@@ -172,12 +175,7 @@ class DataStream:
                 self._pause_event.wait()
 
                 # データパケット作成
-                data = StreamData(
-                    timestamp=time.time(),
-                    emg=emg,
-                    glove=glove,
-                    metadata=metadata
-                )
+                data = StreamData(timestamp=time.time(), emg=emg, glove=glove, metadata=metadata)
 
                 # コールバック呼び出し
                 if self.on_data:
@@ -214,12 +212,7 @@ class FeatureStream(DataStream):
     EMGデータに加えて特徴量も計算して提供
     """
 
-    def __init__(
-        self,
-        source,
-        feature_extractor,
-        **kwargs
-    ):
+    def __init__(self, source, feature_extractor, **kwargs):
         super().__init__(source, **kwargs)
         self.feature_extractor = feature_extractor
 
@@ -245,7 +238,7 @@ class FeatureStream(DataStream):
                     emg=emg,
                     glove=glove,
                     features=features,
-                    metadata=metadata
+                    metadata=metadata,
                 )
 
                 if self.on_data:

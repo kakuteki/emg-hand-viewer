@@ -5,12 +5,13 @@ File-based Data Sources
 ファイルからのデータ再生
 """
 
-import numpy as np
-from typing import Generator, Tuple, Dict, Any, Optional, List
 from pathlib import Path
+from typing import Any, Dict, Generator, List, Optional, Tuple
 
-from .base import DataSource
+import numpy as np
+
 from ..core.data_loader import NinaproLoader, Segment
+from .base import DataSource
 
 
 class NinaproDataSource(DataSource):
@@ -42,7 +43,7 @@ class NinaproDataSource(DataSource):
         movements: Optional[List[int]] = None,
         loop: bool = True,
         n_channels: int = 16,
-        sample_rate: float = 200.0
+        sample_rate: float = 200.0,
     ):
         super().__init__(n_channels, sample_rate)
         self.filepath = Path(filepath)
@@ -85,7 +86,9 @@ class NinaproDataSource(DataSource):
         self._segments = []
         self._connected = False
 
-    def stream(self) -> Generator[Tuple[np.ndarray, Optional[np.ndarray], Dict[str, Any]], None, None]:
+    def stream(
+        self,
+    ) -> Generator[Tuple[np.ndarray, Optional[np.ndarray], Dict[str, Any]], None, None]:
         if not self._connected:
             raise RuntimeError("Not connected. Call connect() first.")
 
@@ -93,17 +96,17 @@ class NinaproDataSource(DataSource):
             segment = self._segments[self._current_segment_idx]
 
             # 現在のサンプルを取得
-            emg = segment.emg[self._current_sample_idx:self._current_sample_idx + 1]
-            glove = segment.glove[self._current_sample_idx:self._current_sample_idx + 1]
+            emg = segment.emg[self._current_sample_idx : self._current_sample_idx + 1]
+            glove = segment.glove[self._current_sample_idx : self._current_sample_idx + 1]
 
             metadata = {
-                'subject_id': segment.subject_id,
-                'movement': segment.movement,
-                'exercise_id': segment.exercise_id,
-                'repetition': segment.repetition,
-                'segment_idx': self._current_segment_idx,
-                'sample_idx': self._current_sample_idx,
-                'total_samples': segment.n_samples
+                "subject_id": segment.subject_id,
+                "movement": segment.movement,
+                "exercise_id": segment.exercise_id,
+                "repetition": segment.repetition,
+                "segment_idx": self._current_segment_idx,
+                "sample_idx": self._current_sample_idx,
+                "total_samples": segment.n_samples,
             }
 
             yield emg, glove, metadata
@@ -140,7 +143,7 @@ class NinaproDataSource(DataSource):
             self._current_segment_idx,
             len(self._segments),
             self._current_sample_idx,
-            seg.n_samples
+            seg.n_samples,
         )
 
 
@@ -165,7 +168,7 @@ class FilePlaybackSource(DataSource):
         emg_data: np.ndarray,
         glove_data: Optional[np.ndarray] = None,
         loop: bool = True,
-        sample_rate: float = 200.0
+        sample_rate: float = 200.0,
     ):
         n_channels = emg_data.shape[1] if emg_data.ndim > 1 else 1
         super().__init__(n_channels, sample_rate)
@@ -180,19 +183,21 @@ class FilePlaybackSource(DataSource):
         self._connected = True
         return True
 
-    def stream(self) -> Generator[Tuple[np.ndarray, Optional[np.ndarray], Dict[str, Any]], None, None]:
+    def stream(
+        self,
+    ) -> Generator[Tuple[np.ndarray, Optional[np.ndarray], Dict[str, Any]], None, None]:
         n_samples = len(self.emg_data)
 
         while True:
-            emg = self.emg_data[self._current_idx:self._current_idx + 1]
+            emg = self.emg_data[self._current_idx : self._current_idx + 1]
             glove = None
             if self.glove_data is not None:
-                glove = self.glove_data[self._current_idx:self._current_idx + 1]
+                glove = self.glove_data[self._current_idx : self._current_idx + 1]
 
             metadata = {
-                'sample_idx': self._current_idx,
-                'total_samples': n_samples,
-                'progress': self._current_idx / n_samples
+                "sample_idx": self._current_idx,
+                "total_samples": n_samples,
+                "progress": self._current_idx / n_samples,
             }
 
             yield emg, glove, metadata
@@ -208,13 +213,13 @@ class FilePlaybackSource(DataSource):
         self._current_idx = 0
 
     @classmethod
-    def from_file(cls, filepath: str, **kwargs) -> 'FilePlaybackSource':
+    def from_file(cls, filepath: str, **kwargs) -> "FilePlaybackSource":
         """ファイルから作成"""
         data = np.load(filepath)
         if isinstance(data, np.ndarray):
             return cls(emg_data=data, **kwargs)
         else:
             # .npzファイル
-            emg = data.get('emg', data.get('data', None))
-            glove = data.get('glove', None)
+            emg = data.get("emg", data.get("data", None))
+            glove = data.get("glove", None)
             return cls(emg_data=emg, glove_data=glove, **kwargs)

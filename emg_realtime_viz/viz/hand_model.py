@@ -7,16 +7,17 @@
 
 from __future__ import annotations
 
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
-from typing import Optional, Dict, List, Tuple
-from dataclasses import dataclass
 
 # PyQt5 / PyQtGraph imports
 HAS_PYQT = False
 try:
-    from PyQt5 import QtWidgets, QtCore, QtGui
-    from PyQt5.QtCore import Qt
     import pyqtgraph.opengl as gl
+    from PyQt5 import QtCore, QtGui, QtWidgets
+    from PyQt5.QtCore import Qt
+
     HAS_PYQT = True
 except ImportError:
     pass
@@ -36,10 +37,10 @@ class HandSkeleton:
     WRIST = 0
 
     # 親指 (Thumb) - 4関節
-    THUMB_CMC = 1   # 手根中手関節
-    THUMB_MCP = 2   # 中手指節関節
-    THUMB_IP = 3    # 指節間関節
-    THUMB_TIP = 4   # 指先
+    THUMB_CMC = 1  # 手根中手関節
+    THUMB_MCP = 2  # 中手指節関節
+    THUMB_IP = 3  # 指節間関節
+    THUMB_TIP = 4  # 指先
 
     # 人差し指 (Index) - 4関節
     INDEX_MCP = 5
@@ -69,11 +70,11 @@ class HandSkeleton:
 
     # 指ごとの関節リスト（根元から先端へ）
     FINGER_CHAINS = {
-        'thumb': [WRIST, THUMB_CMC, THUMB_MCP, THUMB_IP, THUMB_TIP],
-        'index': [WRIST, INDEX_MCP, INDEX_PIP, INDEX_DIP, INDEX_TIP],
-        'middle': [WRIST, MIDDLE_MCP, MIDDLE_PIP, MIDDLE_DIP, MIDDLE_TIP],
-        'ring': [WRIST, RING_MCP, RING_PIP, RING_DIP, RING_TIP],
-        'pinky': [WRIST, PINKY_MCP, PINKY_PIP, PINKY_DIP, PINKY_TIP],
+        "thumb": [WRIST, THUMB_CMC, THUMB_MCP, THUMB_IP, THUMB_TIP],
+        "index": [WRIST, INDEX_MCP, INDEX_PIP, INDEX_DIP, INDEX_TIP],
+        "middle": [WRIST, MIDDLE_MCP, MIDDLE_PIP, MIDDLE_DIP, MIDDLE_TIP],
+        "ring": [WRIST, RING_MCP, RING_PIP, RING_DIP, RING_TIP],
+        "pinky": [WRIST, PINKY_MCP, PINKY_PIP, PINKY_DIP, PINKY_TIP],
     }
 
     @classmethod
@@ -171,22 +172,18 @@ class HandSkeleton:
             cls.THUMB_MCP: cls.THUMB_CMC,
             cls.THUMB_IP: cls.THUMB_MCP,
             cls.THUMB_TIP: cls.THUMB_IP,
-
             cls.INDEX_MCP: cls.WRIST,
             cls.INDEX_PIP: cls.INDEX_MCP,
             cls.INDEX_DIP: cls.INDEX_PIP,
             cls.INDEX_TIP: cls.INDEX_DIP,
-
             cls.MIDDLE_MCP: cls.WRIST,
             cls.MIDDLE_PIP: cls.MIDDLE_MCP,
             cls.MIDDLE_DIP: cls.MIDDLE_PIP,
             cls.MIDDLE_TIP: cls.MIDDLE_DIP,
-
             cls.RING_MCP: cls.WRIST,
             cls.RING_PIP: cls.RING_MCP,
             cls.RING_DIP: cls.RING_PIP,
             cls.RING_TIP: cls.RING_DIP,
-
             cls.PINKY_MCP: cls.WRIST,
             cls.PINKY_PIP: cls.PINKY_MCP,
             cls.PINKY_DIP: cls.PINKY_PIP,
@@ -216,7 +213,7 @@ class HandModel3D:
         gl_widget,
         scale: float = 1.0,
         position: Tuple[float, float, float] = (0, 0, 0),
-        color: Tuple[float, float, float, float] = (0.9, 0.7, 0.5, 1.0)
+        color: Tuple[float, float, float, float] = (0.9, 0.7, 0.5, 1.0),
     ):
         if not HAS_PYQT:
             raise ImportError("PyQt5 and pyqtgraph are required")
@@ -248,10 +245,7 @@ class HandModel3D:
         joint_colors[:, :3] = [1.0, 0.85, 0.7]  # 肌色
 
         self._joint_scatter = gl.GLScatterPlotItem(
-            pos=self._joint_positions,
-            size=12,
-            color=joint_colors,
-            pxMode=True
+            pos=self._joint_positions, size=12, color=joint_colors, pxMode=True
         )
         self.gl_widget.addItem(self._joint_scatter)
 
@@ -262,10 +256,7 @@ class HandModel3D:
             end = self._joint_positions[end_idx]
 
             line = gl.GLLinePlotItem(
-                pos=np.array([start, end]),
-                color=self.color,
-                width=4,
-                antialias=True
+                pos=np.array([start, end]), color=self.color, width=4, antialias=True
             )
             self._bone_lines.append(line)
             self.gl_widget.addItem(line)
@@ -273,35 +264,20 @@ class HandModel3D:
     def _rotation_matrix_x(self, angle: float) -> np.ndarray:
         """X軸周りの回転行列"""
         c, s = np.cos(angle), np.sin(angle)
-        return np.array([
-            [1, 0, 0],
-            [0, c, -s],
-            [0, s, c]
-        ])
+        return np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
 
     def _rotation_matrix_y(self, angle: float) -> np.ndarray:
         """Y軸周りの回転行列"""
         c, s = np.cos(angle), np.sin(angle)
-        return np.array([
-            [c, 0, s],
-            [0, 1, 0],
-            [-s, 0, c]
-        ])
+        return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
 
     def _rotation_matrix_z(self, angle: float) -> np.ndarray:
         """Z軸周りの回転行列"""
         c, s = np.cos(angle), np.sin(angle)
-        return np.array([
-            [c, -s, 0],
-            [s, c, 0],
-            [0, 0, 1]
-        ])
+        return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
 
     def _compute_finger_positions(
-        self,
-        finger_chain: List[int],
-        angles: List[float],
-        is_thumb: bool = False
+        self, finger_chain: List[int], angles: List[float], is_thumb: bool = False
     ) -> Dict[int, np.ndarray]:
         """
         指のForward Kinematicsを計算
@@ -382,11 +358,11 @@ class HandModel3D:
 
         # 各指のFK計算
         finger_data = [
-            ('thumb', [0, 1, 2, 3], True),      # indices 0-3
-            ('index', [4, 5, 6, 7], False),     # indices 4-7
-            ('middle', [8, 9, 10, 11], False),  # indices 8-11
-            ('ring', [12, 13, 14, 15], False),  # indices 12-15
-            ('pinky', [16, 17, 18, 19], False), # indices 16-19
+            ("thumb", [0, 1, 2, 3], True),  # indices 0-3
+            ("index", [4, 5, 6, 7], False),  # indices 4-7
+            ("middle", [8, 9, 10, 11], False),  # indices 8-11
+            ("ring", [12, 13, 14, 15], False),  # indices 12-15
+            ("pinky", [16, 17, 18, 19], False),  # indices 16-19
         ]
 
         for finger_name, angle_indices, is_thumb in finger_data:
@@ -402,9 +378,7 @@ class HandModel3D:
                     finger_angles.append(0)
 
             # FK計算
-            finger_positions = self._compute_finger_positions(
-                chain, finger_angles, is_thumb
-            )
+            finger_positions = self._compute_finger_positions(chain, finger_angles, is_thumb)
 
             # 位置を更新
             for joint_idx, pos in finger_positions.items():
@@ -467,25 +441,19 @@ class DualHandModel3D:
 
         # 実測値（青系）- 左側
         self.ground_truth = HandModel3D(
-            gl_widget,
-            scale=1.0,
-            position=(-2.5, 0, 0),
-            color=(0.3, 0.5, 0.9, 1.0)
+            gl_widget, scale=1.0, position=(-2.5, 0, 0), color=(0.3, 0.5, 0.9, 1.0)
         )
 
         # 予測値（緑系）- 右側
         self.prediction = HandModel3D(
-            gl_widget,
-            scale=1.0,
-            position=(2.5, 0, 0),
-            color=(0.3, 0.9, 0.5, 1.0)
+            gl_widget, scale=1.0, position=(2.5, 0, 0), color=(0.3, 0.9, 0.5, 1.0)
         )
 
     def update(
         self,
         ground_truth_angles: Optional[np.ndarray] = None,
         prediction_angles: Optional[np.ndarray] = None,
-        angle_scale: float = 1.0
+        angle_scale: float = 1.0,
     ):
         """両手を更新"""
         if ground_truth_angles is not None:

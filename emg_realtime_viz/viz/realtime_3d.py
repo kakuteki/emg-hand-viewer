@@ -7,10 +7,11 @@ PyQtGraph + OpenGL による高速リアルタイム3D可視化
 
 from __future__ import annotations
 
-import numpy as np
-from typing import Optional, Dict, Any, Callable, List, TYPE_CHECKING
-from collections import deque
 import time
+from collections import deque
+from typing import Callable, Dict, List, Optional
+
+import numpy as np
 
 # PyQt5 / PyQtGraph imports
 HAS_PYQT = False
@@ -23,10 +24,13 @@ pg = None
 gl = None
 
 try:
-    from PyQt5 import QtWidgets as _QtWidgets, QtCore as _QtCore, QtGui as _QtGui
-    from PyQt5.QtCore import Qt as _Qt, QTimer as _QTimer
     import pyqtgraph as _pg
     import pyqtgraph.opengl as _gl
+    from PyQt5 import QtCore as _QtCore
+    from PyQt5 import QtGui as _QtGui
+    from PyQt5 import QtWidgets as _QtWidgets
+    from PyQt5.QtCore import Qt as _Qt
+    from PyQt5.QtCore import QTimer as _QTimer
 
     QtWidgets = _QtWidgets
     QtCore = _QtCore
@@ -39,8 +43,8 @@ try:
 except ImportError:
     pass
 
-from ..devices.base import DataSource
 from ..core.feature_extractor import FeatureExtractor
+from ..devices.base import DataSource
 
 
 class RealtimeVisualizer:
@@ -75,10 +79,12 @@ class RealtimeVisualizer:
         trail_length: int = 500,
         update_interval: int = 10,
         playback_speed: float = 1.0,
-        features: Optional[List[str]] = None
+        features: Optional[List[str]] = None,
     ):
         if not HAS_PYQT:
-            raise ImportError("PyQt5 and pyqtgraph are required. Install with: pip install PyQt5 pyqtgraph PyOpenGL")
+            raise ImportError(
+                "PyQt5 and pyqtgraph are required. Install with: pip install PyQt5 pyqtgraph PyOpenGL"
+            )
 
         self.source = source
         self.window_size = window_size
@@ -90,7 +96,7 @@ class RealtimeVisualizer:
         self.feature_extractor = FeatureExtractor(
             window_size=window_size,
             n_channels=source.n_channels,
-            features=features or ['mav', 'rms', 'var']
+            features=features or ["mav", "rms", "var"],
         )
 
         # 軌跡データ
@@ -121,7 +127,7 @@ class RealtimeVisualizer:
 
         # メインウィンドウ
         self._window = QtWidgets.QMainWindow()
-        self._window.setWindowTitle('EMG Realtime 3D Visualizer')
+        self._window.setWindowTitle("EMG Realtime 3D Visualizer")
         self._window.resize(1200, 800)
 
         # 中央ウィジェット
@@ -154,7 +160,7 @@ class RealtimeVisualizer:
 
         # ステータスバー
         self._status_bar = self._window.statusBar()
-        self._status_bar.showMessage('Ready')
+        self._status_bar.showMessage("Ready")
 
     def _create_control_panel(self) -> QtWidgets.QWidget:
         """コントロールパネルの作成"""
@@ -162,31 +168,31 @@ class RealtimeVisualizer:
         layout = QtWidgets.QVBoxLayout(panel)
 
         # タイトル
-        title = QtWidgets.QLabel('Control Panel')
-        title.setStyleSheet('font-size: 16px; font-weight: bold;')
+        title = QtWidgets.QLabel("Control Panel")
+        title.setStyleSheet("font-size: 16px; font-weight: bold;")
         layout.addWidget(title)
 
         # 再生コントロール
-        playback_group = QtWidgets.QGroupBox('Playback')
+        playback_group = QtWidgets.QGroupBox("Playback")
         playback_layout = QtWidgets.QHBoxLayout(playback_group)
 
-        self._btn_play = QtWidgets.QPushButton('▶ Play')
+        self._btn_play = QtWidgets.QPushButton("▶ Play")
         self._btn_play.clicked.connect(self._on_play)
         playback_layout.addWidget(self._btn_play)
 
-        self._btn_pause = QtWidgets.QPushButton('⏸ Pause')
+        self._btn_pause = QtWidgets.QPushButton("⏸ Pause")
         self._btn_pause.clicked.connect(self._on_pause)
         self._btn_pause.setEnabled(False)
         playback_layout.addWidget(self._btn_pause)
 
-        self._btn_reset = QtWidgets.QPushButton('⏹ Reset')
+        self._btn_reset = QtWidgets.QPushButton("⏹ Reset")
         self._btn_reset.clicked.connect(self._on_reset)
         playback_layout.addWidget(self._btn_reset)
 
         layout.addWidget(playback_group)
 
         # 速度コントロール
-        speed_group = QtWidgets.QGroupBox('Speed')
+        speed_group = QtWidgets.QGroupBox("Speed")
         speed_layout = QtWidgets.QVBoxLayout(speed_group)
 
         self._speed_slider = QtWidgets.QSlider(Qt.Horizontal)
@@ -195,13 +201,13 @@ class RealtimeVisualizer:
         self._speed_slider.valueChanged.connect(self._on_speed_change)
         speed_layout.addWidget(self._speed_slider)
 
-        self._speed_label = QtWidgets.QLabel(f'Speed: {self.playback_speed:.1f}x')
+        self._speed_label = QtWidgets.QLabel(f"Speed: {self.playback_speed:.1f}x")
         speed_layout.addWidget(self._speed_label)
 
         layout.addWidget(speed_group)
 
         # 軌跡設定
-        trail_group = QtWidgets.QGroupBox('Trail')
+        trail_group = QtWidgets.QGroupBox("Trail")
         trail_layout = QtWidgets.QVBoxLayout(trail_group)
 
         self._trail_slider = QtWidgets.QSlider(Qt.Horizontal)
@@ -210,33 +216,33 @@ class RealtimeVisualizer:
         self._trail_slider.valueChanged.connect(self._on_trail_change)
         trail_layout.addWidget(self._trail_slider)
 
-        self._trail_label = QtWidgets.QLabel(f'Trail Length: {self.trail_length}')
+        self._trail_label = QtWidgets.QLabel(f"Trail Length: {self.trail_length}")
         trail_layout.addWidget(self._trail_label)
 
-        self._btn_clear_trail = QtWidgets.QPushButton('Clear Trail')
+        self._btn_clear_trail = QtWidgets.QPushButton("Clear Trail")
         self._btn_clear_trail.clicked.connect(self._clear_trail)
         trail_layout.addWidget(self._btn_clear_trail)
 
         layout.addWidget(trail_group)
 
         # 情報表示
-        info_group = QtWidgets.QGroupBox('Information')
+        info_group = QtWidgets.QGroupBox("Information")
         info_layout = QtWidgets.QVBoxLayout(info_group)
 
         self._info_labels = {}
-        for key in ['Subject', 'Movement', 'Sample', 'FPS']:
-            label = QtWidgets.QLabel(f'{key}: --')
+        for key in ["Subject", "Movement", "Sample", "FPS"]:
+            label = QtWidgets.QLabel(f"{key}: --")
             self._info_labels[key] = label
             info_layout.addWidget(label)
 
         layout.addWidget(info_group)
 
         # 色設定
-        color_group = QtWidgets.QGroupBox('Color Mode')
+        color_group = QtWidgets.QGroupBox("Color Mode")
         color_layout = QtWidgets.QVBoxLayout(color_group)
 
         self._color_combo = QtWidgets.QComboBox()
-        self._color_combo.addItems(['Time (gradient)', 'Movement', 'Subject', 'Energy'])
+        self._color_combo.addItems(["Time (gradient)", "Movement", "Subject", "Energy"])
         self._color_combo.currentTextChanged.connect(self._on_color_mode_change)
         color_layout.addWidget(self._color_combo)
 
@@ -268,12 +274,12 @@ class RealtimeVisualizer:
         self.source.reset()
         self.feature_extractor.reset()
         self._data_generator = None
-        self._status_bar.showMessage('Reset')
+        self._status_bar.showMessage("Reset")
 
     def _on_speed_change(self, value):
         """速度変更"""
         self.playback_speed = value / 10.0
-        self._speed_label.setText(f'Speed: {self.playback_speed:.1f}x')
+        self._speed_label.setText(f"Speed: {self.playback_speed:.1f}x")
 
     def _on_trail_change(self, value):
         """軌跡長変更"""
@@ -281,7 +287,7 @@ class RealtimeVisualizer:
         self._trail = deque(maxlen=value)
         self._colors = deque(maxlen=value)
         self._metadata_history = deque(maxlen=value)
-        self._trail_label.setText(f'Trail Length: {value}')
+        self._trail_label.setText(f"Trail Length: {value}")
 
     def _on_color_mode_change(self, mode):
         """色モード変更"""
@@ -312,7 +318,7 @@ class RealtimeVisualizer:
             self._timer.timeout.connect(self._update)
         self._timer.start(self.update_interval)
 
-        self._status_bar.showMessage('Streaming...')
+        self._status_bar.showMessage("Streaming...")
         self._last_update_time = time.time()
         self._frame_count = 0
 
@@ -357,7 +363,7 @@ class RealtimeVisualizer:
             elapsed = time.time() - self._last_update_time
             if elapsed >= 1.0:
                 fps = self._frame_count / elapsed
-                self._info_labels['FPS'].setText(f'FPS: {fps:.1f}')
+                self._info_labels["FPS"].setText(f"FPS: {fps:.1f}")
                 self._frame_count = 0
                 self._last_update_time = time.time()
 
@@ -370,7 +376,7 @@ class RealtimeVisualizer:
             self._timer.stop()
             self._btn_play.setEnabled(True)
             self._btn_pause.setEnabled(False)
-            self._status_bar.showMessage('End of data')
+            self._status_bar.showMessage("End of data")
 
     def _project_to_3d(self, features: np.ndarray) -> np.ndarray:
         """特徴量を3次元空間に射影"""
@@ -396,50 +402,62 @@ class RealtimeVisualizer:
         if n_points == 0:
             return
 
-        mode = self._color_combo.currentText() if hasattr(self, '_color_combo') else 'Time (gradient)'
+        mode = (
+            self._color_combo.currentText() if hasattr(self, "_color_combo") else "Time (gradient)"
+        )
 
-        if mode == 'Time (gradient)':
+        if mode == "Time (gradient)":
             # 時間に基づくグラデーション
             colors = np.zeros((n_points, 4))
             for i in range(n_points):
                 t = i / max(1, n_points - 1)
                 colors[i] = [0.2 + 0.8 * t, 0.2, 1.0 - 0.8 * t, 0.3 + 0.7 * t]
 
-        elif mode == 'Movement':
+        elif mode == "Movement":
             # 動作に基づく色
             colors = np.zeros((n_points, 4))
-            cmap = plt_cm_tab20 = [
-                [0.12, 0.47, 0.71, 1], [0.68, 0.78, 0.91, 1],
-                [1.0, 0.50, 0.05, 1], [1.0, 0.73, 0.47, 1],
-                [0.17, 0.63, 0.17, 1], [0.60, 0.87, 0.54, 1],
-                [0.84, 0.15, 0.16, 1], [1.0, 0.60, 0.59, 1],
-                [0.58, 0.40, 0.74, 1], [0.77, 0.69, 0.84, 1],
+            cmap = [
+                [0.12, 0.47, 0.71, 1],
+                [0.68, 0.78, 0.91, 1],
+                [1.0, 0.50, 0.05, 1],
+                [1.0, 0.73, 0.47, 1],
+                [0.17, 0.63, 0.17, 1],
+                [0.60, 0.87, 0.54, 1],
+                [0.84, 0.15, 0.16, 1],
+                [1.0, 0.60, 0.59, 1],
+                [0.58, 0.40, 0.74, 1],
+                [0.77, 0.69, 0.84, 1],
             ]
             for i, meta in enumerate(self._metadata_history):
-                if meta and 'movement' in meta:
-                    c_idx = meta['movement'] % len(cmap)
+                if meta and "movement" in meta:
+                    c_idx = meta["movement"] % len(cmap)
                     colors[i] = cmap[c_idx]
                 else:
                     colors[i] = [0.5, 0.5, 0.5, 0.5]
 
-        elif mode == 'Subject':
+        elif mode == "Subject":
             # 被験者に基づく色
             colors = np.zeros((n_points, 4))
             cmap = [
-                [0.9, 0.1, 0.1, 1], [0.1, 0.9, 0.1, 1],
-                [0.1, 0.1, 0.9, 1], [0.9, 0.9, 0.1, 1],
-                [0.9, 0.1, 0.9, 1], [0.1, 0.9, 0.9, 1],
-                [0.9, 0.5, 0.1, 1], [0.5, 0.1, 0.9, 1],
-                [0.1, 0.5, 0.9, 1], [0.5, 0.9, 0.1, 1],
+                [0.9, 0.1, 0.1, 1],
+                [0.1, 0.9, 0.1, 1],
+                [0.1, 0.1, 0.9, 1],
+                [0.9, 0.9, 0.1, 1],
+                [0.9, 0.1, 0.9, 1],
+                [0.1, 0.9, 0.9, 1],
+                [0.9, 0.5, 0.1, 1],
+                [0.5, 0.1, 0.9, 1],
+                [0.1, 0.5, 0.9, 1],
+                [0.5, 0.9, 0.1, 1],
             ]
             for i, meta in enumerate(self._metadata_history):
-                if meta and 'subject_id' in meta:
-                    c_idx = (meta['subject_id'] - 1) % len(cmap)
+                if meta and "subject_id" in meta:
+                    c_idx = (meta["subject_id"] - 1) % len(cmap)
                     colors[i] = cmap[c_idx]
                 else:
                     colors[i] = [0.5, 0.5, 0.5, 0.5]
 
-        elif mode == 'Energy':
+        elif mode == "Energy":
             # エネルギー（点の大きさ）に基づく色
             colors = np.zeros((n_points, 4))
             trail_array = np.array(self._trail)
@@ -470,13 +488,13 @@ class RealtimeVisualizer:
     def _update_info(self, metadata: Dict):
         """情報パネル更新"""
         if metadata:
-            if 'subject_id' in metadata:
-                self._info_labels['Subject'].setText(f"Subject: {metadata['subject_id']}")
-            if 'movement' in metadata:
-                self._info_labels['Movement'].setText(f"Movement: {metadata['movement']}")
-            if 'sample_idx' in metadata:
-                total = metadata.get('total_samples', '?')
-                self._info_labels['Sample'].setText(f"Sample: {metadata['sample_idx']}/{total}")
+            if "subject_id" in metadata:
+                self._info_labels["Subject"].setText(f"Subject: {metadata['subject_id']}")
+            if "movement" in metadata:
+                self._info_labels["Movement"].setText(f"Movement: {metadata['movement']}")
+            if "sample_idx" in metadata:
+                total = metadata.get("total_samples", "?")
+                self._info_labels["Sample"].setText(f"Sample: {metadata['sample_idx']}/{total}")
 
     def run(self):
         """アプリケーション実行"""

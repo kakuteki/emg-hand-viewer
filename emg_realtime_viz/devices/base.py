@@ -6,7 +6,8 @@ Base Device Module
 """
 
 from abc import ABC, abstractmethod
-from typing import Generator, Tuple, Dict, Any, Optional
+from typing import Any, Dict, Generator, Optional, Tuple
+
 import numpy as np
 
 
@@ -22,11 +23,7 @@ class DataSource(ABC):
         - disconnect(): 切断（必要な場合）
     """
 
-    def __init__(
-        self,
-        n_channels: int = 16,
-        sample_rate: float = 200.0
-    ):
+    def __init__(self, n_channels: int = 16, sample_rate: float = 200.0):
         self.n_channels = n_channels
         self.sample_rate = sample_rate
         self._connected = False
@@ -52,7 +49,9 @@ class DataSource(ABC):
         self._connected = False
 
     @abstractmethod
-    def stream(self) -> Generator[Tuple[np.ndarray, Optional[np.ndarray], Dict[str, Any]], None, None]:
+    def stream(
+        self,
+    ) -> Generator[Tuple[np.ndarray, Optional[np.ndarray], Dict[str, Any]], None, None]:
         """
         データストリームを生成
 
@@ -106,14 +105,16 @@ class RealtimeDataSource(DataSource):
             print(f"Connection failed: {e}")
             return False
 
-    def stream(self) -> Generator[Tuple[np.ndarray, Optional[np.ndarray], Dict[str, Any]], None, None]:
+    def stream(
+        self,
+    ) -> Generator[Tuple[np.ndarray, Optional[np.ndarray], Dict[str, Any]], None, None]:
         if not self._connected:
             raise RuntimeError("Not connected. Call connect() first.")
 
         while self._connected:
             try:
                 emg = self._read_sample()
-                yield emg, None, {'timestamp': None}
+                yield emg, None, {"timestamp": None}
             except Exception as e:
                 print(f"Read error: {e}")
                 break
