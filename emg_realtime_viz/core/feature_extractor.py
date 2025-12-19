@@ -5,9 +5,10 @@ Feature Extractor Module
 EMG信号からの特徴量抽出
 """
 
-import numpy as np
-from typing import Dict, List, Optional, Callable
 from collections import deque
+from typing import Callable, Dict, List, Optional
+
+import numpy as np
 
 
 class FeatureExtractor:
@@ -32,36 +33,42 @@ class FeatureExtractor:
     """
 
     AVAILABLE_FEATURES = [
-        'mav', 'rms', 'var', 'wl', 'zc', 'ssc',
-        'iemg', 'dasdv', 'tkeo', 'mad', 'nle'
+        "mav",
+        "rms",
+        "var",
+        "wl",
+        "zc",
+        "ssc",
+        "iemg",
+        "dasdv",
+        "tkeo",
+        "mad",
+        "nle",
     ]
 
     def __init__(
-        self,
-        window_size: int = 20,
-        n_channels: int = 16,
-        features: Optional[List[str]] = None
+        self, window_size: int = 20, n_channels: int = 16, features: Optional[List[str]] = None
     ):
         self.window_size = window_size
         self.n_channels = n_channels
-        self.features = features or ['mav', 'rms', 'var', 'wl', 'tkeo', 'mad']
+        self.features = features or ["mav", "rms", "var", "wl", "tkeo", "mad"]
 
         # バッファの初期化
         self._buffer = deque(maxlen=window_size)
 
         # 特徴量計算関数の登録
         self._feature_funcs: Dict[str, Callable] = {
-            'mav': self._compute_mav,
-            'rms': self._compute_rms,
-            'var': self._compute_var,
-            'wl': self._compute_wl,
-            'zc': self._compute_zc,
-            'ssc': self._compute_ssc,
-            'iemg': self._compute_iemg,
-            'dasdv': self._compute_dasdv,
-            'tkeo': self._compute_tkeo,
-            'mad': self._compute_mad,
-            'nle': self._compute_nle,
+            "mav": self._compute_mav,
+            "rms": self._compute_rms,
+            "var": self._compute_var,
+            "wl": self._compute_wl,
+            "zc": self._compute_zc,
+            "ssc": self._compute_ssc,
+            "iemg": self._compute_iemg,
+            "dasdv": self._compute_dasdv,
+            "tkeo": self._compute_tkeo,
+            "mad": self._compute_mad,
+            "nle": self._compute_nle,
         }
 
     def reset(self):
@@ -132,10 +139,7 @@ class FeatureExtractor:
             raise RuntimeError("Buffer not full.")
 
         window = self.get_window()
-        return {
-            feat_name: self._feature_funcs[feat_name](window)
-            for feat_name in self.features
-        }
+        return {feat_name: self._feature_funcs[feat_name](window) for feat_name in self.features}
 
     @property
     def feature_dim(self) -> int:
@@ -163,7 +167,7 @@ class FeatureExtractor:
     @staticmethod
     def _compute_rms(window: np.ndarray) -> np.ndarray:
         """Root Mean Square"""
-        return np.sqrt(np.mean(window ** 2, axis=0))
+        return np.sqrt(np.mean(window**2, axis=0))
 
     @staticmethod
     def _compute_var(window: np.ndarray) -> np.ndarray:
@@ -200,7 +204,7 @@ class FeatureExtractor:
     def _compute_dasdv(window: np.ndarray) -> np.ndarray:
         """Difference Absolute Standard Deviation Value"""
         diff = np.diff(window, axis=0)
-        return np.sqrt(np.mean(diff ** 2, axis=0))
+        return np.sqrt(np.mean(diff**2, axis=0))
 
     @staticmethod
     def _compute_tkeo(window: np.ndarray) -> np.ndarray:
@@ -219,7 +223,7 @@ class FeatureExtractor:
     @staticmethod
     def _compute_nle(window: np.ndarray) -> np.ndarray:
         """Normalized Logarithmic Energy"""
-        energy = np.sum(window ** 2, axis=0)
+        energy = np.sum(window**2, axis=0)
         return np.log(energy / len(window) + 1e-10)
 
 
@@ -235,7 +239,7 @@ class SlidingWindowExtractor(FeatureExtractor):
         window_size: int = 20,
         hop_size: int = 5,
         n_channels: int = 16,
-        features: Optional[List[str]] = None
+        features: Optional[List[str]] = None,
     ):
         super().__init__(window_size, n_channels, features)
         self.hop_size = hop_size

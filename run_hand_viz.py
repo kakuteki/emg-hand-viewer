@@ -19,9 +19,10 @@ EMG信号から推論した手のポーズをリアルタイムで3D表示
     python run_hand_viz.py --myo --model path/to/model.pth
 """
 
-import sys
 import argparse
+import sys
 from pathlib import Path
+
 import numpy as np
 
 # ライブラリパスを追加
@@ -47,6 +48,7 @@ def create_demo_model():
     - 16-19: 小指
     """
     import time
+
     start_time = time.time()
 
     def demo_inference(features: np.ndarray) -> np.ndarray:
@@ -112,7 +114,7 @@ def load_pytorch_model(model_path: str):
     print(f"モデルをロード中: {model_path}")
 
     # モデルをロード
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     try:
         model = torch.load(model_path, map_location=device)
@@ -135,7 +137,7 @@ def load_pytorch_model(model_path: str):
                     nn.Linear(256, 128),
                     nn.ReLU(),
                     nn.Dropout(0.3),
-                    nn.Linear(128, output_dim)
+                    nn.Linear(128, output_dim),
                 )
 
             def forward(self, x):
@@ -165,47 +167,23 @@ def load_pytorch_model(model_path: str):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='EMG Hand Visualizer with Inference Display',
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        description="EMG Hand Visualizer with Inference Display",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
     # データソース
     parser.add_argument(
-        '--file', '-f',
-        type=str,
-        default='ninapro_db5_segmented.npz',
-        help='データファイルパス'
+        "--file", "-f", type=str, default="ninapro_db5_segmented.npz", help="データファイルパス"
     )
 
     # 推論モデル
-    parser.add_argument(
-        '--model',
-        type=str,
-        help='学習済みモデルのパス (.pth)'
-    )
-    parser.add_argument(
-        '--demo-inference',
-        action='store_true',
-        help='デモ用疑似推論モデルを使用'
-    )
+    parser.add_argument("--model", type=str, help="学習済みモデルのパス (.pth)")
+    parser.add_argument("--demo-inference", action="store_true", help="デモ用疑似推論モデルを使用")
 
     # 表示設定
-    parser.add_argument(
-        '--no-ground-truth',
-        action='store_true',
-        help='実測値を非表示'
-    )
-    parser.add_argument(
-        '--no-prediction',
-        action='store_true',
-        help='予測値を非表示'
-    )
-    parser.add_argument(
-        '--speed',
-        type=float,
-        default=1.0,
-        help='再生速度'
-    )
+    parser.add_argument("--no-ground-truth", action="store_true", help="実測値を非表示")
+    parser.add_argument("--no-prediction", action="store_true", help="予測値を非表示")
+    parser.add_argument("--speed", type=float, default=1.0, help="再生速度")
 
     args = parser.parse_args()
 
@@ -247,7 +225,7 @@ def main():
         inference_model=inference_model,
         show_ground_truth=not args.no_ground_truth,
         show_prediction=not args.no_prediction and inference_model is not None,
-        playback_speed=args.speed
+        playback_speed=args.speed,
     )
 
     print("\nアプリケーションを起動中...")
@@ -264,5 +242,5 @@ def main():
     return viz.run()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

@@ -24,27 +24,30 @@ Hand Viewer API
 
 from __future__ import annotations
 
-import numpy as np
-from typing import Optional, Callable, Tuple
-from threading import Thread, Event
-from queue import Queue, Empty
 import time
+from queue import Empty, Queue
+from threading import Event, Thread
+from typing import Optional, Tuple
+
+import numpy as np
 
 # PyQt5 imports
 HAS_PYQT = False
 try:
-    from PyQt5 import QtWidgets, QtCore
-    from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject
     import pyqtgraph.opengl as gl
+    from PyQt5 import QtWidgets
+    from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
+
     HAS_PYQT = True
 except ImportError:
     pass
 
-from .hand_model import HandModel3D, DualHandModel3D, HandSkeleton
+from .hand_model import DualHandModel3D
 
 
 class _SignalEmitter(QObject):
     """Qt シグナル用のエミッター"""
+
     update_signal = pyqtSignal()
     close_signal = pyqtSignal()
 
@@ -89,7 +92,7 @@ class HandViewer:
         size: Tuple[int, int] = (800, 600),
         show_ground_truth: bool = True,
         show_prediction: bool = True,
-        angle_scale: float = 1.0
+        angle_scale: float = 1.0,
     ):
         if not HAS_PYQT:
             raise ImportError("PyQt5 and pyqtgraph are required")
@@ -278,20 +281,20 @@ class HandViewer:
         layout = QtWidgets.QVBoxLayout(panel)
 
         # タイトル
-        title = QtWidgets.QLabel('Hand Viewer')
-        title.setStyleSheet('font-size: 14px; font-weight: bold;')
+        title = QtWidgets.QLabel("Hand Viewer")
+        title.setStyleSheet("font-size: 14px; font-weight: bold;")
         layout.addWidget(title)
 
         # 表示設定
-        display_group = QtWidgets.QGroupBox('Display')
+        display_group = QtWidgets.QGroupBox("Display")
         display_layout = QtWidgets.QVBoxLayout(display_group)
 
-        self._cb_gt = QtWidgets.QCheckBox('Ground Truth (Blue)')
+        self._cb_gt = QtWidgets.QCheckBox("Ground Truth (Blue)")
         self._cb_gt.setChecked(self.show_ground_truth)
         self._cb_gt.toggled.connect(lambda c: self._hand_model.ground_truth.set_visible(c))
         display_layout.addWidget(self._cb_gt)
 
-        self._cb_pred = QtWidgets.QCheckBox('Prediction (Green)')
+        self._cb_pred = QtWidgets.QCheckBox("Prediction (Green)")
         self._cb_pred.setChecked(self.show_prediction)
         self._cb_pred.toggled.connect(lambda c: self._hand_model.prediction.set_visible(c))
         display_layout.addWidget(self._cb_pred)
@@ -299,28 +302,28 @@ class HandViewer:
         layout.addWidget(display_group)
 
         # スケール
-        scale_group = QtWidgets.QGroupBox('Angle Scale')
+        scale_group = QtWidgets.QGroupBox("Angle Scale")
         scale_layout = QtWidgets.QVBoxLayout(scale_group)
 
         self._scale_slider = QtWidgets.QSlider(Qt.Horizontal)
         self._scale_slider.setRange(1, 30)
         self._scale_slider.setValue(int(self.angle_scale * 10))
-        self._scale_slider.valueChanged.connect(lambda v: setattr(self, 'angle_scale', v / 10))
+        self._scale_slider.valueChanged.connect(lambda v: setattr(self, "angle_scale", v / 10))
         scale_layout.addWidget(self._scale_slider)
 
-        self._scale_label = QtWidgets.QLabel(f'Scale: {self.angle_scale:.1f}')
+        self._scale_label = QtWidgets.QLabel(f"Scale: {self.angle_scale:.1f}")
         self._scale_slider.valueChanged.connect(
-            lambda v: self._scale_label.setText(f'Scale: {v/10:.1f}')
+            lambda v: self._scale_label.setText(f"Scale: {v / 10:.1f}")
         )
         scale_layout.addWidget(self._scale_label)
 
         layout.addWidget(scale_group)
 
         # レジェンド
-        legend_group = QtWidgets.QGroupBox('Legend')
+        legend_group = QtWidgets.QGroupBox("Legend")
         legend_layout = QtWidgets.QVBoxLayout(legend_group)
-        legend_layout.addWidget(QtWidgets.QLabel('🔵 Ground Truth (Left)'))
-        legend_layout.addWidget(QtWidgets.QLabel('🟢 Prediction (Right)'))
+        legend_layout.addWidget(QtWidgets.QLabel("🔵 Ground Truth (Left)"))
+        legend_layout.addWidget(QtWidgets.QLabel("🟢 Prediction (Right)"))
         layout.addWidget(legend_group)
 
         layout.addStretch()
