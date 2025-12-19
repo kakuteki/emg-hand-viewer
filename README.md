@@ -1,5 +1,7 @@
 # EMG Hand Pose Estimation
 
+[![CI](https://github.com/kakuteki/emg-hand-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/kakuteki/emg-hand-viewer/actions/workflows/ci.yml)
+
 筋電図（EMG）信号から手のポーズをリアルタイムで推定・可視化するためのPythonライブラリ
 
 ## 概要
@@ -13,7 +15,7 @@
 - Ground Truth（実測値）と予測値の比較表示
 - 外部アプリケーションから利用可能なWrapper API
 - Ninapro DB5データセット対応
-- 各種LSTMアーキテクチャによる学習スクリプト
+- 学習済みモデルを用いた推論
 
 ## インストール
 
@@ -231,32 +233,12 @@ class HandViewer:
 ├── run_inference_app.py        # 推論アプリ（メインGUI）
 ├── run_hand_viz.py             # 手モデルビューワー
 ├── run_realtime_viz.py         # リアルタイム可視化
-│
-├── *_train.py                  # 各種学習スクリプト
-├── feature_analysis.py         # 特徴量分析
-├── integrated_gradients_analysis.py  # 解釈可能性分析
+├── test_hand_model.py          # 手モデルテスト
 │
 ├── requirements.txt
+├── ruff.toml                   # Linter設定
 ├── README.md
 └── LICENSE
-```
-
-## 学習スクリプト
-
-各種LSTMアーキテクチャによるEMG-手関節角度回帰モデルの学習:
-
-| スクリプト | モデル |
-|-----------|--------|
-| `emg_to_joint_rnn.py` | 基本LSTM |
-| `attention_lstm_train.py` | Attention LSTM |
-| `self_attention_lstm_train.py` | Self-Attention LSTM |
-| `causal_self_attention_lstm_train.py` | Causal Self-Attention |
-| `cnn_lstm_train.py` | CNN-LSTM |
-| `melspec_attention_lstm_train.py` | メルスペクトログラム入力 |
-
-ハイパーパラメータ最適化:
-```bash
-python optuna_optimize.py
 ```
 
 ## データ
