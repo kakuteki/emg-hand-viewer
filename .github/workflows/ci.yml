@@ -84,7 +84,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install mypy types-PyQt5
+          pip install mypy PyQt5-stubs
 
       - name: Run mypy
         run: mypy emg_realtime_viz --ignore-missing-imports --no-error-summary || true
