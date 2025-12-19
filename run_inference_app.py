@@ -4,14 +4,21 @@ EMG Inference Application
 =========================
 
 EMG信号から手のポーズを推論し、リアルタイム3D表示
-Subject/Movementをプルダウンメニューで選択可能
+- Subject/Movementをプルダウンメニューで選択
+- 推論モデルをプルダウンメニューで選択
+- データファイルをプルダウンメニューで選択
+- モデル/データのインポート機能
 
 使用方法:
     python run_inference_app.py
-    python run_inference_app.py --model path/to/model.pth
+
+ディレクトリ構成:
+    models/  - 学習済みモデル (.pth) を配置
+    data/    - データファイル (.npz) を配置
 """
 
 import sys
+import shutil
 import argparse
 import numpy as np
 from pathlib import Path
@@ -23,29 +30,41 @@ sys.path.insert(0, str(Path(__file__).parent))
 # PyQt5
 from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtWidgets import QFileDialog, QMessageBox
 import pyqtgraph.opengl as gl
 
 from emg_realtime_viz.viz.hand_model import DualHandModel3D
+
+# デフォルトディレクトリ
+APP_DIR = Path(__file__).parent
+MODELS_DIR = APP_DIR / "models"
+DATA_DIR = APP_DIR / "data"
 
 
 class InferenceApp(QtWidgets.QMainWindow):
     """
     EMG推論アプリケーション
 
-    Subject/Movementを選択してEMGデータを再生、
-    推論結果と実測値を3D手モデルで表示
+    機能:
+    - Subject/Movementを選択してEMGデータを再生
+    - 推論モデルを選択
+    - データファイルを選択
+    - モデル/データのインポート
     """
 
-    def __init__(
-        self,
-        data_path: str,
-        inference_model: Optional[Callable] = None,
-        parent=None
-    ):
+    def __init__(self, parent=None):
         super().__init__(parent)
 
-        self.data_path = data_path
-        self.inference_model = inference_model or self._create_demo_model()
+        # ディレクトリ作成
+        MODELS_DIR.mkdir(exist_ok=True)
+        DATA_DIR.mkdir(exist_ok=True)
+
+        # モデル/データ
+        self.available_models: Dict[str, Path] = {}
+        self.available_data: Dict[str, Path] = {}
+        self.current_model_path: Optional[Path] = None
+        self.current_data_path: Optional[Path] = None
+        self.inference_model: Optional[Callable] = None
 
         # データ
         self.segments: List[Dict] = []
@@ -59,18 +78,21 @@ class InferenceApp(QtWidgets.QMainWindow):
         self.current_frame_idx = 0
         self.playback_speed = 0.5
 
-        # 更新タイマー（UIより先に初期化）
+        # 更新タイマー
         self.timer = QTimer()
         self.timer.timeout.connect(self._update_frame)
 
         # UI初期化
         self._setup_ui()
-        self._load_data()
+
+        # モデル/データをスキャン
+        self._scan_models()
+        self._scan_data()
 
     def _setup_ui(self):
         """UIセットアップ"""
         self.setWindowTitle("EMG Inference Viewer")
-        self.resize(1200, 800)
+        self.resize(1400, 900)
 
         # 中央ウィジェット
         central = QtWidgets.QWidget()
@@ -103,6 +125,7 @@ class InferenceApp(QtWidgets.QMainWindow):
     def _create_control_panel(self) -> QtWidgets.QWidget:
         """コントロールパネル作成"""
         panel = QtWidgets.QWidget()
+        panel.setMinimumWidth(350)
         layout = QtWidgets.QVBoxLayout(panel)
 
         # タイトル
@@ -110,37 +133,85 @@ class InferenceApp(QtWidgets.QMainWindow):
         title.setStyleSheet("font-size: 16px; font-weight: bold;")
         layout.addWidget(title)
 
-        # データ選択グループ
-        data_group = QtWidgets.QGroupBox("Data Selection")
-        data_layout = QtWidgets.QFormLayout(data_group)
+        # === モデル選択グループ ===
+        model_group = QtWidgets.QGroupBox("Model")
+        model_layout = QtWidgets.QVBoxLayout(model_group)
+
+        # モデル選択コンボボックス
+        model_select_layout = QtWidgets.QHBoxLayout()
+        self.model_combo = QtWidgets.QComboBox()
+        self.model_combo.currentIndexChanged.connect(self._on_model_changed)
+        model_select_layout.addWidget(self.model_combo, stretch=1)
+
+        # モデルインポートボタン
+        self.import_model_btn = QtWidgets.QPushButton("Import...")
+        self.import_model_btn.clicked.connect(self._import_model)
+        model_select_layout.addWidget(self.import_model_btn)
+        model_layout.addLayout(model_select_layout)
+
+        # モデル情報
+        self.model_info_label = QtWidgets.QLabel("No model loaded")
+        self.model_info_label.setStyleSheet("color: gray; font-size: 11px;")
+        self.model_info_label.setWordWrap(True)
+        model_layout.addWidget(self.model_info_label)
+
+        layout.addWidget(model_group)
+
+        # === データ選択グループ ===
+        data_group = QtWidgets.QGroupBox("Data File")
+        data_layout = QtWidgets.QVBoxLayout(data_group)
+
+        # データファイル選択コンボボックス
+        data_select_layout = QtWidgets.QHBoxLayout()
+        self.data_combo = QtWidgets.QComboBox()
+        self.data_combo.currentIndexChanged.connect(self._on_data_changed)
+        data_select_layout.addWidget(self.data_combo, stretch=1)
+
+        # データインポートボタン
+        self.import_data_btn = QtWidgets.QPushButton("Import...")
+        self.import_data_btn.clicked.connect(self._import_data)
+        data_select_layout.addWidget(self.import_data_btn)
+        data_layout.addLayout(data_select_layout)
+
+        # データ情報
+        self.data_info_label = QtWidgets.QLabel("No data loaded")
+        self.data_info_label.setStyleSheet("color: gray; font-size: 11px;")
+        self.data_info_label.setWordWrap(True)
+        data_layout.addWidget(self.data_info_label)
+
+        layout.addWidget(data_group)
+
+        # === セグメント選択グループ ===
+        segment_group = QtWidgets.QGroupBox("Segment Selection")
+        segment_layout = QtWidgets.QFormLayout(segment_group)
 
         # Subject選択
         self.subject_combo = QtWidgets.QComboBox()
         self.subject_combo.currentIndexChanged.connect(self._on_subject_changed)
-        data_layout.addRow("Subject:", self.subject_combo)
+        segment_layout.addRow("Subject:", self.subject_combo)
 
         # Movement選択
         self.movement_combo = QtWidgets.QComboBox()
         self.movement_combo.currentIndexChanged.connect(self._on_movement_changed)
-        data_layout.addRow("Movement:", self.movement_combo)
+        segment_layout.addRow("Movement:", self.movement_combo)
 
         # セグメント情報
         self.segment_label = QtWidgets.QLabel("Segments: -")
-        data_layout.addRow(self.segment_label)
+        segment_layout.addRow(self.segment_label)
 
-        layout.addWidget(data_group)
+        layout.addWidget(segment_group)
 
-        # 再生コントロール
+        # === 再生コントロール ===
         play_group = QtWidgets.QGroupBox("Playback")
         play_layout = QtWidgets.QVBoxLayout(play_group)
 
         # Play/Pauseボタン
         btn_layout = QtWidgets.QHBoxLayout()
-        self.play_btn = QtWidgets.QPushButton("▶ Play")
+        self.play_btn = QtWidgets.QPushButton("Play")
         self.play_btn.clicked.connect(self._toggle_play)
         btn_layout.addWidget(self.play_btn)
 
-        self.reset_btn = QtWidgets.QPushButton("⟲ Reset")
+        self.reset_btn = QtWidgets.QPushButton("Reset")
         self.reset_btn.clicked.connect(self._reset_playback)
         btn_layout.addWidget(self.reset_btn)
         play_layout.addLayout(btn_layout)
@@ -168,7 +239,7 @@ class InferenceApp(QtWidgets.QMainWindow):
 
         layout.addWidget(play_group)
 
-        # 表示設定
+        # === 表示設定 ===
         display_group = QtWidgets.QGroupBox("Display")
         display_layout = QtWidgets.QVBoxLayout(display_group)
 
@@ -200,11 +271,11 @@ class InferenceApp(QtWidgets.QMainWindow):
 
         layout.addWidget(display_group)
 
-        # レジェンド
+        # === 凡例 ===
         legend_group = QtWidgets.QGroupBox("Legend")
         legend_layout = QtWidgets.QVBoxLayout(legend_group)
-        legend_layout.addWidget(QtWidgets.QLabel("🔵 Ground Truth (Left)"))
-        legend_layout.addWidget(QtWidgets.QLabel("🟢 Prediction (Right)"))
+        legend_layout.addWidget(QtWidgets.QLabel("Blue: Ground Truth (Left)"))
+        legend_layout.addWidget(QtWidgets.QLabel("Green: Prediction (Right)"))
         layout.addWidget(legend_group)
 
         # ステータス
@@ -216,20 +287,199 @@ class InferenceApp(QtWidgets.QMainWindow):
 
         return panel
 
-    def _load_data(self):
+    # ========== モデル管理 ==========
+
+    def _scan_models(self):
+        """modelsディレクトリをスキャン"""
+        self.available_models.clear()
+        self.model_combo.clear()
+
+        # デモモデル（常に利用可能）
+        self.model_combo.addItem("Demo Model (Built-in)", "demo")
+
+        # modelsディレクトリ内の.pthファイルをスキャン
+        if MODELS_DIR.exists():
+            for pth_file in sorted(MODELS_DIR.glob("*.pth")):
+                name = pth_file.stem
+                self.available_models[name] = pth_file
+                self.model_combo.addItem(name, str(pth_file))
+
+        # ルートディレクトリの.pthファイルもスキャン
+        for pth_file in sorted(APP_DIR.glob("*.pth")):
+            name = pth_file.stem
+            if name not in self.available_models:
+                self.available_models[name] = pth_file
+                self.model_combo.addItem(f"{name} (root)", str(pth_file))
+
+    def _on_model_changed(self, index):
+        """モデル選択変更時"""
+        if index < 0:
+            return
+
+        model_data = self.model_combo.currentData()
+
+        if model_data == "demo":
+            self.inference_model = self._create_demo_model()
+            self.current_model_path = None
+            self.model_info_label.setText("Demo model: EMG energy-based estimation")
+        else:
+            model_path = Path(model_data)
+            if model_path.exists():
+                self._load_pytorch_model(model_path)
+            else:
+                self.model_info_label.setText(f"Error: File not found")
+
+    def _load_pytorch_model(self, model_path: Path):
+        """PyTorchモデルをロード"""
+        try:
+            import torch
+
+            self.status_label.setText(f"Loading model: {model_path.name}...")
+            QtWidgets.QApplication.processEvents()
+
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+            # モデルをロード
+            model = torch.load(str(model_path), map_location=device)
+            model.eval()
+
+            # 推論関数を作成
+            state = {'prev': None}
+
+            def inference(emg: np.ndarray) -> np.ndarray:
+                with torch.no_grad():
+                    if emg.ndim > 1:
+                        emg = emg.mean(axis=0) if emg.shape[1] == 16 else emg.mean(axis=1)
+
+                    x = torch.tensor(emg, dtype=torch.float32).unsqueeze(0).to(device)
+                    y = model(x).cpu().numpy().flatten()
+
+                    # 0-1にクリップ
+                    y = np.clip(y, 0, 1)
+
+                    # 出力が22次元の場合は20次元に変換
+                    if len(y) == 22:
+                        angles = np.zeros(20)
+                        angles[0:4] = y[0:4]
+                        angles[4:8] = y[4:8]
+                        angles[8:12] = y[8:12]
+                        angles[12:16] = y[12:16]
+                        angles[16:20] = y[16:20]
+                        y = angles
+
+                    # スムージング
+                    if state['prev'] is not None:
+                        y = 0.3 * y + 0.7 * state['prev']
+                    state['prev'] = y
+
+                    return y
+
+            self.inference_model = inference
+            self.current_model_path = model_path
+            self.model_info_label.setText(f"Loaded: {model_path.name}\nDevice: {device}")
+            self.status_label.setText("Model loaded")
+
+        except Exception as e:
+            self.model_info_label.setText(f"Error: {str(e)[:100]}")
+            self.inference_model = self._create_demo_model()
+            QMessageBox.warning(self, "Model Load Error",
+                              f"Failed to load model:\n{e}\n\nUsing demo model.")
+
+    def _import_model(self):
+        """モデルをインポート"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import Model",
+            str(Path.home()),
+            "PyTorch Models (*.pth *.pt);;All Files (*)"
+        )
+
+        if file_path:
+            src_path = Path(file_path)
+            dst_path = MODELS_DIR / src_path.name
+
+            # コピー確認
+            if dst_path.exists():
+                reply = QMessageBox.question(
+                    self, "Confirm Overwrite",
+                    f"'{src_path.name}' already exists.\nOverwrite?",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+                if reply != QMessageBox.Yes:
+                    return
+
+            try:
+                shutil.copy2(src_path, dst_path)
+                self._scan_models()
+
+                # 新しくインポートしたモデルを選択
+                for i in range(self.model_combo.count()):
+                    if self.model_combo.itemData(i) == str(dst_path):
+                        self.model_combo.setCurrentIndex(i)
+                        break
+
+                self.status_label.setText(f"Imported: {src_path.name}")
+
+            except Exception as e:
+                QMessageBox.critical(self, "Import Error", f"Failed to import:\n{e}")
+
+    # ========== データ管理 ==========
+
+    def _scan_data(self):
+        """dataディレクトリをスキャン"""
+        self.available_data.clear()
+        self.data_combo.clear()
+
+        # dataディレクトリ内の.npzファイルをスキャン
+        if DATA_DIR.exists():
+            for npz_file in sorted(DATA_DIR.glob("*.npz")):
+                name = npz_file.stem
+                self.available_data[name] = npz_file
+                self.data_combo.addItem(name, str(npz_file))
+
+        # ルートディレクトリの.npzファイルもスキャン
+        for npz_file in sorted(APP_DIR.glob("*.npz")):
+            name = npz_file.stem
+            if name not in self.available_data:
+                self.available_data[name] = npz_file
+                self.data_combo.addItem(f"{name} (root)", str(npz_file))
+
+        if self.data_combo.count() == 0:
+            self.data_combo.addItem("No data files found", None)
+            self.data_info_label.setText("Place .npz files in 'data/' directory")
+
+    def _on_data_changed(self, index):
+        """データファイル選択変更時"""
+        if index < 0:
+            return
+
+        data_path = self.data_combo.currentData()
+
+        if data_path is None:
+            return
+
+        data_path = Path(data_path)
+        if data_path.exists():
+            self._load_data(data_path)
+
+    def _load_data(self, data_path: Path):
         """データをロード"""
-        self.status_label.setText("Loading data...")
+        self.status_label.setText(f"Loading: {data_path.name}...")
         QtWidgets.QApplication.processEvents()
 
         try:
-            data = np.load(self.data_path, allow_pickle=True)
+            data = np.load(str(data_path), allow_pickle=True)
             self.segments = list(data['segments'])
+            self.current_data_path = data_path
 
             # 利用可能なsubject/movementを取得
             self.subjects = sorted(set(seg['subject_id'] for seg in self.segments))
             self.movements = sorted(set(seg['movement'] for seg in self.segments))
 
             # コンボボックスを更新
+            self.subject_combo.blockSignals(True)
+            self.movement_combo.blockSignals(True)
+
             self.subject_combo.clear()
             for s in self.subjects:
                 self.subject_combo.addItem(f"Subject {s}", s)
@@ -238,14 +488,65 @@ class InferenceApp(QtWidgets.QMainWindow):
             for m in self.movements:
                 self.movement_combo.addItem(f"Movement {m}", m)
 
-            self.status_label.setText(f"Loaded {len(self.segments)} segments")
+            self.subject_combo.blockSignals(False)
+            self.movement_combo.blockSignals(False)
+
+            # 情報更新
+            self.data_info_label.setText(
+                f"Loaded: {data_path.name}\n"
+                f"Segments: {len(self.segments)}, "
+                f"Subjects: {len(self.subjects)}, "
+                f"Movements: {len(self.movements)}"
+            )
+
+            self.status_label.setText("Data loaded")
 
             # 初期データを選択
             self._update_current_segments()
 
         except Exception as e:
-            self.status_label.setText(f"Error: {e}")
-            QtWidgets.QMessageBox.critical(self, "Error", f"Failed to load data:\n{e}")
+            self.data_info_label.setText(f"Error: {str(e)[:100]}")
+            QMessageBox.critical(self, "Data Load Error", f"Failed to load data:\n{e}")
+
+    def _import_data(self):
+        """データをインポート"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import Data",
+            str(Path.home()),
+            "NumPy Files (*.npz *.npy);;All Files (*)"
+        )
+
+        if file_path:
+            src_path = Path(file_path)
+            dst_path = DATA_DIR / src_path.name
+
+            # コピー確認
+            if dst_path.exists():
+                reply = QMessageBox.question(
+                    self, "Confirm Overwrite",
+                    f"'{src_path.name}' already exists.\nOverwrite?",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+                if reply != QMessageBox.Yes:
+                    return
+
+            try:
+                shutil.copy2(src_path, dst_path)
+                self._scan_data()
+
+                # 新しくインポートしたデータを選択
+                for i in range(self.data_combo.count()):
+                    if self.data_combo.itemData(i) == str(dst_path):
+                        self.data_combo.setCurrentIndex(i)
+                        break
+
+                self.status_label.setText(f"Imported: {src_path.name}")
+
+            except Exception as e:
+                QMessageBox.critical(self, "Import Error", f"Failed to import:\n{e}")
+
+    # ========== セグメント管理 ==========
 
     def _update_current_segments(self):
         """現在選択されているsubject/movementのセグメントを更新"""
@@ -281,27 +582,33 @@ class InferenceApp(QtWidgets.QMainWindow):
         scale = value / 10.0
         self.scale_label.setText(f"{scale:.1f}")
 
+    # ========== 再生制御 ==========
+
     def _toggle_play(self):
         """再生/一時停止切り替え"""
         if not self.current_segments:
+            QMessageBox.information(self, "No Data", "Please load data first.")
             return
+
+        if self.inference_model is None:
+            self.inference_model = self._create_demo_model()
 
         self.playing = not self.playing
 
         if self.playing:
-            self.play_btn.setText("⏸ Pause")
-            interval = int(10 / self.playback_speed)  # 100Hz base
+            self.play_btn.setText("Pause")
+            interval = int(10 / self.playback_speed)
             self.timer.start(interval)
             self.status_label.setText("Playing...")
         else:
-            self.play_btn.setText("▶ Play")
+            self.play_btn.setText("Play")
             self.timer.stop()
             self.status_label.setText("Paused")
 
     def _reset_playback(self):
         """再生をリセット"""
         self.playing = False
-        self.play_btn.setText("▶ Play")
+        self.play_btn.setText("Play")
         self.timer.stop()
         self.current_seg_idx = 0
         self.current_frame_idx = 0
@@ -327,7 +634,10 @@ class InferenceApp(QtWidgets.QMainWindow):
         gt_angles = self._normalize_glove(glove_frame)
 
         # 推論
-        pred_angles = self.inference_model(emg_frame)
+        if self.inference_model:
+            pred_angles = self.inference_model(emg_frame)
+        else:
+            pred_angles = gt_angles.copy()
 
         # スケール取得
         scale = self.scale_slider.value() / 10.0
@@ -358,6 +668,8 @@ class InferenceApp(QtWidgets.QMainWindow):
             if self.current_seg_idx >= len(self.current_segments):
                 self.current_seg_idx = 0
                 self.status_label.setText("Looping...")
+
+    # ========== ユーティリティ ==========
 
     def _normalize_glove(self, glove: np.ndarray) -> np.ndarray:
         """Gloveデータを正規化"""
@@ -426,56 +738,39 @@ class InferenceApp(QtWidgets.QMainWindow):
 
 def main():
     parser = argparse.ArgumentParser(description='EMG Inference Application')
-    parser.add_argument(
-        '--file', '-f',
-        type=str,
-        default='ninapro_db5_segmented.npz',
-        help='Data file path'
-    )
-    parser.add_argument(
-        '--model', '-m',
-        type=str,
-        help='Trained model path (.pth)'
-    )
+    parser.add_argument('--model', '-m', type=str, help='Initial model path')
+    parser.add_argument('--data', '-d', type=str, help='Initial data path')
 
     args = parser.parse_args()
-
-    # データパス
-    data_path = Path(args.file)
-    if not data_path.is_absolute():
-        data_path = Path(__file__).parent / args.file
-
-    if not data_path.exists():
-        print(f"Error: Data file not found: {data_path}")
-        sys.exit(1)
 
     # アプリ起動
     app = QtWidgets.QApplication(sys.argv)
 
-    # 推論モデル（オプション）
-    inference_model = None
+    window = InferenceApp()
+
+    # 初期モデル指定があれば選択
     if args.model:
-        try:
-            import torch
-            model = torch.load(args.model)
-            model.eval()
+        model_path = Path(args.model)
+        if model_path.exists():
+            # コンボボックスで該当モデルを探す
+            for i in range(window.model_combo.count()):
+                if window.model_combo.itemData(i) == str(model_path):
+                    window.model_combo.setCurrentIndex(i)
+                    break
+            else:
+                # リストにない場合は直接ロード
+                window._load_pytorch_model(model_path)
 
-            def inference(emg):
-                with torch.no_grad():
-                    x = torch.tensor(emg, dtype=torch.float32).unsqueeze(0)
-                    return model(x).numpy().flatten()
+    # 初期データ指定があれば選択
+    if args.data:
+        data_path = Path(args.data)
+        if data_path.exists():
+            for i in range(window.data_combo.count()):
+                if window.data_combo.itemData(i) == str(data_path):
+                    window.data_combo.setCurrentIndex(i)
+                    break
 
-            inference_model = inference
-            print(f"Loaded model: {args.model}")
-        except Exception as e:
-            print(f"Failed to load model: {e}")
-
-    window = InferenceApp(
-        data_path=str(data_path),
-        inference_model=inference_model
-    )
     window.show()
-
     sys.exit(app.exec_())
 
 
