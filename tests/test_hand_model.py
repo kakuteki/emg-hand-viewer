@@ -111,6 +111,13 @@ def test_角度スケールが効く():
     assert np.linalg.norm(rest[tip]) > np.linalg.norm(half[tip]) > np.linalg.norm(full[tip])
 
 
+def test_NaNや無限大が座標に漏れない():
+    """外部APIから直接おかしな値を渡されても、描画が黙って壊れないこと"""
+    for bad in (np.nan, np.inf, -np.inf):
+        positions = forward_kinematics(np.full(20, bad))
+        assert np.all(np.isfinite(positions)), bad
+
+
 def test_角度が20個未満でも落ちない():
     positions = forward_kinematics(np.ones(8))
     assert positions.shape == (HandSkeleton.N_JOINTS, 3)

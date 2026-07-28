@@ -319,7 +319,10 @@ def forward_kinematics(angles: np.ndarray, angle_scale: float = 1.0) -> np.ndarr
     np.ndarray
         関節位置 (21, 3)
     """
+    # NaNや無限大が座標まで抜けると、描画が黙って壊れて原因が追いにくい
     values = np.asarray(angles, dtype=np.float64).flatten()
+    values = np.nan_to_num(values, nan=0.0, posinf=1.0, neginf=0.0)
+
     rest_pose = HandSkeleton.get_rest_pose()
     positions = rest_pose.copy()
 

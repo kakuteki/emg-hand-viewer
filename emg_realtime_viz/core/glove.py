@@ -47,6 +47,11 @@ import numpy as np
 N_GLOVE_SENSORS = 22
 N_HAND_ANGLES = 20
 
+# 範囲を求めるときに使うサンプル数の上限。
+# DB5は全体で約230万サンプルあり、全部を一度に持つと1GBを超える。
+# 分位点を出すだけならこの程度で十分。
+DEFAULT_FIT_SAMPLES = 100_000
+
 FINGERS = ("thumb", "index", "middle", "ring", "pinky")
 
 # CyberGlove本体の並び（親指ひねり, 親指MP, 親指IP, 親指-人差し指の外転, 人差し指MP, ...）
@@ -156,6 +161,11 @@ def to_finger_angles(
         関節角度 (20,)
     """
     columns = FLEXION_COLUMNS if layout is None else layout
+
+    missing = [finger for finger in FINGERS if finger not in columns]
+    if missing:
+        raise ValueError(f"並びの指定に足りない指があります: {missing}")
+
     values = np.asarray(normalized, dtype=np.float64).flatten()
 
     angles = np.zeros(N_HAND_ANGLES, dtype=np.float32)
@@ -258,7 +268,7 @@ class GloveNormalizer:
     def is_fitted(self) -> bool:
         return self.minimum is not None
 
-    def fit(self, rows: np.ndarray) -> GloveNormalizer:
+    def fit(self, rows: np.ndarray, max_samples: int = DEFAULT_FIT_SAMPLES) -> GloveNormalizer:
         """
         センサごとの範囲を求める
 
@@ -266,31 +276,72 @@ class GloveNormalizer:
         ----------
         rows : np.ndarray
             グローブ値 (n_samples, n_sensors)
+        max_samples : int
+            使うサンプル数の上限。超える分は等間隔で間引く
 
         Returns
         -------
         GloveNormalizer
             自分自身
         """
-        data = np.asarray(rows, dtype=np.float64)
+        data = np.asarray(rows)
         if data.ndim != 2 or data.shape[0] == 0:
             return self
 
-        if data.shape[1] < N_GLOVE_SENSORS:
-            padded = np.zeros((data.shape[0], N_GLOVE_SENSORS))
-            padded[:, : data.shape[1]] = data
-            data = padded
+        return self.fit_segments([data], max_samples)
+
+    def fit_segments(
+        self, segments: Sequence[np.ndarray], max_samples: int = DEFAULT_FIT_SAMPLES
+    ) -> GloveNormalizer:
+        """
+        複数のセグメントから範囲を求める
+
+        連結してから間引くのではなく、各セグメントを間引いてから連結する。
+        DB5全体を一度に持つと1GBを超えるため。
+
+        Parameters
+        ----------
+        segments : sequence of np.ndarray
+            グローブ値の配列 (n_samples, n_sensors) の並び
+        max_samples : int
+            使うサンプル数の上限
+
+        Returns
+        -------
+        GloveNormalizer
+            自分自身
+        """
+        arrays = [np.asarray(s) for s in segments]
+        arrays = [a for a in arrays if a.ndim == 2 and a.shape[0] > 0]
+        if not arrays:
+            return self
+
+        total = sum(a.shape[0] for a in arrays)
+        stride = max(1, int(np.ceil(total / max(1, max_samples))))
+
+        sampled = np.concatenate([a[::stride] for a in arrays], axis=0).astype(np.float64)
+
+        if sampled.shape[1] < N_GLOVE_SENSORS:
+            padded = np.zeros((sampled.shape[0], N_GLOVE_SENSORS))
+            padded[:, : sampled.shape[1]] = sampled
+            sampled = padded
         else:
-            data = data[:, :N_GLOVE_SENSORS]
+            sampled = sampled[:, :N_GLOVE_SENSORS]
 
-        data = np.nan_to_num(data, nan=0.0)
+        # 無限大やNaNは「値なし」として分位点の計算から外す。
+        # 0で埋めると1件の異常値で範囲が壊れ、手が動かなくなる。
+        sampled[~np.isfinite(sampled)] = np.nan
 
-        low = np.percentile(data, self.low_percentile, axis=0)
-        high = np.percentile(data, self.high_percentile, axis=0)
+        with np.errstate(all="ignore"):
+            low = np.nanpercentile(sampled, self.low_percentile, axis=0)
+            high = np.nanpercentile(sampled, self.high_percentile, axis=0)
+
+        # 全部が値なしだった列は0-1扱いにする
+        low = np.nan_to_num(low, nan=0.0)
+        high = np.nan_to_num(high, nan=1.0)
 
         # 動かないセンサは常に0にする（span=0のときの割り算を避ける）
-        flat = high <= low
-        high = np.where(flat, low + 1.0, high)
+        high = np.where(high <= low, low + 1.0, high)
 
         self.minimum = low
         self.maximum = high

@@ -449,13 +449,16 @@ class InferenceApp(QtWidgets.QMainWindow):
             self.segments = list(data["segments"])
             self.current_data_path = data_path
 
-            # グローブ値は未校正なので、正規化の範囲はこのデータから決める
+            # グローブ値は未校正なので、正規化の範囲はこのデータから決める。
+            # 連結せずに間引いて渡す（全体を持つと1GBを超える）
             glove_rows = [
-                np.asarray(seg["glove"]) for seg in self.segments if seg["glove"].ndim == 2
+                np.asarray(seg["glove"])
+                for seg in self.segments
+                if "glove" in seg and np.asarray(seg["glove"]).ndim == 2
             ]
             self.glove_normalizer = GloveNormalizer()
             if glove_rows:
-                self.glove_normalizer.fit(np.concatenate(glove_rows, axis=0))
+                self.glove_normalizer.fit_segments(glove_rows)
 
             # 利用可能なsubject/movementを取得
             self.subjects = sorted(set(seg["subject_id"] for seg in self.segments))

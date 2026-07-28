@@ -142,3 +142,43 @@ class TestGloveNormalizer:
     def test_センサ数が少ないデータ(self):
         normalizer = GloveNormalizer().fit(np.random.rand(30, 10))
         assert normalizer(np.zeros(10)).shape == (20,)
+
+    def test_無限大が混ざっても範囲が壊れない(self):
+        """1件の異常値で全部0に潰れないこと"""
+        rows = self.make_rows()
+        rows[0, :] = np.inf
+        rows[1, :] = np.nan
+
+        normalizer = GloveNormalizer().fit(rows)
+        angles = normalizer(rows[80])
+
+        assert np.any(angles > 0.1), "異常値のせいで手が動かなくなっている"
+        assert np.all(np.isfinite(angles))
+
+    def test_大きなデータでも間引いて使う(self):
+        rows = np.tile(np.linspace(0, 100, 1000).reshape(-1, 1), (1, N_GLOVE_SENSORS))
+
+        few = GloveNormalizer(low_percentile=0, high_percentile=100)
+        few.fit(rows, max_samples=50)
+
+        many = GloveNormalizer(low_percentile=0, high_percentile=100)
+        many.fit(rows, max_samples=10_000)
+
+        # 間引いても範囲はほぼ同じ（等間隔に抜くので端が少し内側に入る）
+        assert few.minimum == pytest.approx(many.minimum, abs=3.0)
+        assert few.maximum == pytest.approx(many.maximum, abs=3.0)
+
+    def test_連結せずにセグメントから求められる(self):
+        segments = [np.full((100, N_GLOVE_SENSORS), v) for v in (0.0, 50.0, 100.0)]
+
+        joined = GloveNormalizer().fit(np.concatenate(segments, axis=0))
+        by_segments = GloveNormalizer().fit_segments(segments)
+
+        assert by_segments.minimum == pytest.approx(joined.minimum)
+        assert by_segments.maximum == pytest.approx(joined.maximum)
+
+
+def test_並びの指定に足りない指があれば例外():
+    with pytest.raises(ValueError) as e:
+        to_finger_angles(np.ones(N_GLOVE_SENSORS), {"thumb": (0, 1, 2)})
+    assert "index" in str(e.value)

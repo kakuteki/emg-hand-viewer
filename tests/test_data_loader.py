@@ -84,6 +84,27 @@ def test_終端まで再生しても進捗を読める(tmp_path):
     assert seg_idx < n_segments
 
 
+def test_項目が足りないセグメントは理由が分かる例外(tmp_path):
+    segment = make_segment(1, 1)
+    del segment["glove"]
+
+    path = tmp_path / "no_glove.npz"
+    np.savez(path, segments=np.array([segment], dtype=object))
+
+    with pytest.raises(ValueError) as e:
+        NinaproLoader(str(path))
+    assert "glove" in str(e.value)
+
+
+def test_segmentsが無いファイルは理由が分かる例外(tmp_path):
+    path = tmp_path / "no_key.npz"
+    np.savez(path, data=np.zeros(3))
+
+    with pytest.raises(ValueError) as e:
+        NinaproLoader(str(path))
+    assert "segments" in str(e.value)
+
+
 def test_無いファイルは例外(tmp_path):
     with pytest.raises(FileNotFoundError):
         NinaproLoader(str(tmp_path / "missing.npz"))

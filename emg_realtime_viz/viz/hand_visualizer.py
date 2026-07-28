@@ -181,9 +181,10 @@ class HandVisualizer:
         print(
             f"  Movements: {min(self._movements)}-{max(self._movements)} ({len(self._movements)} types)"
         )
+        # 連結せずに間引いて渡す（全体を持つと1GBを超える）
         self._glove_normalizer = GloveNormalizer()
         if glove_rows:
-            self._glove_normalizer.fit(np.concatenate(glove_rows, axis=0))
+            self._glove_normalizer.fit_segments(glove_rows)
 
         print(f"  Exercises: {self._exercises}")
         print(f"  Channels: {self._n_channels}")
