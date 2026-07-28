@@ -181,19 +181,30 @@ class FeatureExtractor:
 
     @staticmethod
     def _compute_zc(window: np.ndarray, threshold: float = 0.01) -> np.ndarray:
-        """Zero Crossings"""
+        """
+        Zero Crossings
+
+        符号が入れ替わり、かつ振幅の変化が閾値を超えた回数を数える。
+        閾値を見ないと、静止時の微小なノイズまで交差として数えてしまう。
+        """
         centered = window - np.mean(window, axis=0, keepdims=True)
-        signs = np.sign(centered)
-        sign_changes = np.abs(np.diff(signs, axis=0))
-        return np.sum(sign_changes > 0, axis=0).astype(np.float32)
+        prev, nxt = centered[:-1], centered[1:]
+        crossed = (prev * nxt) < 0
+        significant = np.abs(prev - nxt) >= threshold
+        return np.sum(crossed & significant, axis=0).astype(np.float32)
 
     @staticmethod
     def _compute_ssc(window: np.ndarray, threshold: float = 0.01) -> np.ndarray:
-        """Slope Sign Change"""
+        """
+        Slope Sign Change
+
+        傾きの符号が入れ替わり、かつ変化量が閾値を超えた回数を数える。
+        """
         diff = np.diff(window, axis=0)
-        signs = np.sign(diff)
-        sign_changes = np.abs(np.diff(signs, axis=0))
-        return np.sum(sign_changes > 0, axis=0).astype(np.float32)
+        prev, nxt = diff[:-1], diff[1:]
+        changed = (prev * nxt) < 0
+        significant = np.maximum(np.abs(prev), np.abs(nxt)) >= threshold
+        return np.sum(changed & significant, axis=0).astype(np.float32)
 
     @staticmethod
     def _compute_iemg(window: np.ndarray) -> np.ndarray:

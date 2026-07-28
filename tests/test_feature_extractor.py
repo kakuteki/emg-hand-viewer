@@ -65,6 +65,32 @@ def test_既知の入力で値が合う():
     assert result["wl"] == pytest.approx(np.full(3, 6.0))
 
 
+def test_ゼロ交差はノイズを数えない():
+    extractor = make_extractor(window_size=6, n_channels=1, features=["zc"])
+    # 平均のまわりを微小に揺れるだけ（閾値0.01より小さい）
+    for value in (0.0, 0.001, -0.001, 0.001, -0.001, 0.0):
+        extractor.update(np.array([value]))
+    assert extractor.extract()[0] == 0.0
+
+    # はっきり振れれば数える
+    extractor.reset()
+    for value in (-1.0, 1.0, -1.0, 1.0, -1.0, 1.0):
+        extractor.update(np.array([value]))
+    assert extractor.extract()[0] == 5.0
+
+
+def test_傾きの符号変化もノイズを数えない():
+    extractor = make_extractor(window_size=6, n_channels=1, features=["ssc"])
+    for value in (0.0, 0.001, 0.0, 0.001, 0.0, 0.001):
+        extractor.update(np.array([value]))
+    assert extractor.extract()[0] == 0.0
+
+    extractor.reset()
+    for value in (0.0, 1.0, 0.0, 1.0, 0.0, 1.0):
+        extractor.update(np.array([value]))
+    assert extractor.extract()[0] == 4.0
+
+
 def test_知らない特徴量名は例外():
     extractor = make_extractor(features=["mav", "nonexistent"])
     fill(extractor)

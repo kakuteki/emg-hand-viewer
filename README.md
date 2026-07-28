@@ -88,122 +88,75 @@ python run_realtime_viz.py
 
 他のアプリケーションから手モデルを制御するためのAPIを提供しています。
 
-### 基本的な使い方
+QtのGUIは主スレッドでしか作れません。そのため使い方は次の2通りです。
+（以前の版にあった「別スレッドでGUIを回す」使い方はQtの制約で動かないため、
+呼ぶと理由を添えた例外になります）
+
+### 1. 自分のループの中で回す
 
 ```python
 from emg_realtime_viz import HandViewer
-import numpy as np
 
-# ビューワーを作成
 viewer = HandViewer(
     title="My Hand Viewer",
     show_ground_truth=True,
     show_prediction=True,
     angle_scale=1.0
 )
+viewer.open()
 
-# 別スレッドでビューワーを起動
-viewer.start()
+while viewer.process():
+    emg_frame = get_emg_from_sensor()
+    viewer.set_prediction(model.predict(emg_frame))   # ここで描画も進む
 
-# メインループで手のポーズを更新
-while viewer.is_running():
-    # EMGデータを取得（例）
-    emg_data = get_emg_from_sensor()
-
-    # モデルで推論
-    predicted_angles = model.predict(emg_data)
-
-    # 予測値（緑の手）を更新
-    viewer.set_prediction(predicted_angles)
-
-    # 実測値がある場合（青の手）
     if ground_truth is not None:
         viewer.set_ground_truth(ground_truth)
 
-# 終了
-viewer.stop()
+viewer.close()
 ```
 
-### コンテキストマネージャーを使用
+`with` でも同じことができます。
 
 ```python
 from emg_realtime_viz import HandViewerContext
 
 with HandViewerContext() as viewer:
     for emg_frame in data_stream:
-        prediction = model.predict(emg_frame)
-        viewer.set_prediction(prediction)
+        viewer.set_prediction(model.predict(emg_frame))
+        if not viewer.is_running():
+            break
+```
 
-# withブロックを抜けると自動的にビューワーが終了
+### 2. データ供給を別スレッドにする
+
+ウィンドウを閉じるまで `run()` から戻りません。
+
+```python
+from emg_realtime_viz import HandViewer
+
+def producer(viewer):
+    while viewer.is_running():
+        viewer.set_prediction(model.predict(get_emg_from_sensor()))
+
+HandViewer().run(producer)
 ```
 
 ### HandViewer API リファレンス
 
-```python
-class HandViewer:
-    def __init__(
-        self,
-        title: str = "Hand Viewer",
-        size: tuple = (800, 600),
-        show_ground_truth: bool = True,
-        show_prediction: bool = True,
-        angle_scale: float = 1.0
-    ):
-        """
-        Parameters
-        ----------
-        title : str
-            ウィンドウタイトル
-        size : tuple
-            ウィンドウサイズ (width, height)
-        show_ground_truth : bool
-            実測値（青い手）を表示するか
-        show_prediction : bool
-            予測値（緑の手）を表示するか
-        angle_scale : float
-            関節角度の表示スケール
-        """
+| メソッド | 役割 |
+|---------|------|
+| `open()` | ウィンドウを作る（主スレッドから呼ぶこと。イベントループは回さない） |
+| `process()` | 溜まった描画と入力を処理する。開いていれば `True` を返す |
+| `run(producer=None)` | イベントループを回す。`producer` は別スレッドで実行される |
+| `close()` / `stop()` | 閉じる（どのスレッドからでも呼べる） |
+| `is_running()` | 動いているか |
+| `set_prediction(angles)` | 予測値（緑の手）を更新。20次元・0-1 |
+| `set_ground_truth(angles)` | 実測値（青の手）を更新。20次元・0-1 |
+| `set_both(gt, pred)` | 両手を同時に更新 |
+| `set_angle_scale(scale)` | 角度のスケールを変える |
 
-    def start(self, blocking: bool = False):
-        """
-        ビューワーを開始
-
-        Parameters
-        ----------
-        blocking : bool
-            Trueの場合、ウィンドウが閉じるまでブロック
-            Falseの場合、別スレッドで実行（デフォルト）
-        """
-
-    def stop(self):
-        """ビューワーを停止"""
-
-    def set_prediction(self, angles: np.ndarray):
-        """
-        予測値（緑の手）を更新
-
-        Parameters
-        ----------
-        angles : np.ndarray
-            関節角度 shape=(20,)、各値は0-1の範囲
-        """
-
-    def set_ground_truth(self, angles: np.ndarray):
-        """
-        実測値（青の手）を更新
-
-        Parameters
-        ----------
-        angles : np.ndarray
-            関節角度 shape=(20,)、各値は0-1の範囲
-        """
-
-    def set_both(self, ground_truth: np.ndarray, prediction: np.ndarray):
-        """両手を同時に更新"""
-
-    def is_running(self) -> bool:
-        """ビューワーが実行中かどうかを返す"""
-```
+姿勢の更新はどのスレッドからでも呼べます。主スレッドから呼んだ場合はその場で描画まで進み、
+別スレッドから呼んだ場合はキューに積まれてGUI側が取り出します。
 
 ## 手モデルの関節角度
 
@@ -238,7 +191,26 @@ class HandViewer:
 2. `(1, 16)` 1フレーム入力のモデル
 3. `(1, 320)` 窓を平らに並べたモデル
 
+例外が出ないことだけでは判別できない点に注意しています。全結合層は`(1, 20, 16)`を渡しても
+内部で時間方向に放送されて`(1, 20, 22)`を返してしまうため、出力の要素数が20か22であることまで
+確かめたうえで入力の形を決めています。
+
 出力が22次元（グローブと同じ並び）のときは先頭20要素を使います。
+**出力は0-1の範囲であることを前提**にしており、範囲外は0と1に丸めます。
+標準化した値（平均0）を出すモデルは、手が伸びたまま動かないように見えるので、
+学習側の出口にsigmoidなどを入れてください。
+
+## 環境の注意点
+
+- **PyTorchはQtより先に読み込む必要があります。** 逆にするとWindowsでtorchのDLL初期化が
+  失敗し（WinError 1114）、学習済みモデルが一切読めません。起動スクリプトの側で対処済みですが、
+  自分でスクリプトを書くときは`import torch`を先に置いてください
+- **PySide6が入っている環境**では、pyqtgraphがそちらを掴んでQtが二重に載り、
+  `QWidget: Must construct a QApplication before a QWidget`で即クラッシュします。
+  `emg_realtime_viz.qt_compat`が読み込み前にPyQt5を指定して防いでいます。
+  別のQtを使いたい場合は環境変数`PYQTGRAPH_QT_LIB`で上書きできます
+- 同じプロセスで3D表示のウィンドウを閉じてから開き直すと、pyqtgraph側の都合で
+  描画に失敗することがあります。開き直す場合はプロセスを分けてください
 
 ## プロジェクト構成
 
@@ -246,6 +218,7 @@ class HandViewer:
 .
 ├── emg_realtime_viz/           # メインライブラリ
 │   ├── __init__.py
+│   ├── qt_compat.py            # pyqtgraphが使うQtの指定
 │   ├── core/                   # コア機能
 │   │   ├── data_loader.py      # Ninaproデータローダー
 │   │   ├── feature_extractor.py # EMG特徴量抽出
