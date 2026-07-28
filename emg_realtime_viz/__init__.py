@@ -28,7 +28,13 @@ Myo Armbandの使用:
 from . import qt_compat  # noqa: F401  pyqtgraphより先に読むこと
 from .core.data_loader import NinaproLoader
 from .core.feature_extractor import FeatureExtractor
-from .core.glove import glove_to_angles, normalize_glove, to_hand_angles
+from .core.glove import (
+    FLEXION_COLUMNS,
+    GloveNormalizer,
+    glove_to_angles,
+    normalize_glove,
+    to_hand_angles,
+)
 from .core.inference import TorchInference, energy_demo_model, load_torch_model, wave_demo_model
 from .core.stream import DataStream
 from .devices.base import DataSource, RealtimeDataSource
@@ -51,6 +57,8 @@ __all__ = [
     "normalize_glove",
     "glove_to_angles",
     "to_hand_angles",
+    "GloveNormalizer",
+    "FLEXION_COLUMNS",
     "TorchInference",
     "load_torch_model",
     "energy_demo_model",

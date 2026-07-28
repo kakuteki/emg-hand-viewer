@@ -46,7 +46,7 @@ from PyQt5 import QtWidgets  # noqa: E402
 from PyQt5.QtCore import Qt, QTimer  # noqa: E402
 from PyQt5.QtWidgets import QFileDialog, QMessageBox  # noqa: E402
 
-from emg_realtime_viz.core.glove import glove_to_angles  # noqa: E402
+from emg_realtime_viz.core.glove import GloveNormalizer  # noqa: E402
 from emg_realtime_viz.core.inference import energy_demo_model, load_torch_model  # noqa: E402
 from emg_realtime_viz.viz.hand_model import DualHandModel3D  # noqa: E402
 
@@ -80,6 +80,7 @@ class InferenceApp(QtWidgets.QMainWindow):
         self.current_model_path: Optional[Path] = None
         self.current_data_path: Optional[Path] = None
         self.inference_model: Optional[Callable] = None
+        self.glove_normalizer = GloveNormalizer()
 
         # データ
         self.segments: List[Dict] = []
@@ -448,6 +449,14 @@ class InferenceApp(QtWidgets.QMainWindow):
             self.segments = list(data["segments"])
             self.current_data_path = data_path
 
+            # グローブ値は未校正なので、正規化の範囲はこのデータから決める
+            glove_rows = [
+                np.asarray(seg["glove"]) for seg in self.segments if seg["glove"].ndim == 2
+            ]
+            self.glove_normalizer = GloveNormalizer()
+            if glove_rows:
+                self.glove_normalizer.fit(np.concatenate(glove_rows, axis=0))
+
             # 利用可能なsubject/movementを取得
             self.subjects = sorted(set(seg["subject_id"] for seg in self.segments))
             self.movements = sorted(set(seg["movement"] for seg in self.segments))
@@ -614,7 +623,7 @@ class InferenceApp(QtWidgets.QMainWindow):
 
         # Ground Truth
         glove_frame = glove[self.current_frame_idx, :]
-        gt_angles = glove_to_angles(glove_frame)
+        gt_angles = self.glove_normalizer(glove_frame)
 
         # 推論（EMGの生値をそのまま渡す）
         if self.inference_model:

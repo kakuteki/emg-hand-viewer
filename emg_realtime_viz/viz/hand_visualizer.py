@@ -42,7 +42,7 @@ except ImportError:
     pass
 
 from ..core.feature_extractor import FeatureExtractor
-from ..core.glove import glove_to_angles
+from ..core.glove import GloveNormalizer
 from ..devices.file_source import NinaproDataSource
 from .hand_model import DualHandModel3D
 
@@ -139,6 +139,7 @@ class HandVisualizer:
         self._exercises = set()
         self._segment_info = []
         self._n_channels = 16
+        glove_rows = []
 
         for seg in segments:
             if hasattr(seg, "item"):
@@ -153,6 +154,11 @@ class HandVisualizer:
             emg = seg.get("emg", None)
             if emg is not None and getattr(emg, "ndim", 0) == 2:
                 self._n_channels = int(emg.shape[1])
+
+            # グローブの正規化はデータの分布から決める（値は未校正のため）
+            glove = seg.get("glove", None)
+            if glove is not None and getattr(glove, "ndim", 0) == 2:
+                glove_rows.append(np.asarray(glove))
 
             self._subjects.add(subject_id)
             self._movements.add(movement)
@@ -175,8 +181,13 @@ class HandVisualizer:
         print(
             f"  Movements: {min(self._movements)}-{max(self._movements)} ({len(self._movements)} types)"
         )
+        self._glove_normalizer = GloveNormalizer()
+        if glove_rows:
+            self._glove_normalizer.fit(np.concatenate(glove_rows, axis=0))
+
         print(f"  Exercises: {self._exercises}")
         print(f"  Channels: {self._n_channels}")
+        print(f"  Glove range from data: {self._glove_normalizer.is_fitted}")
 
     def _create_source(self, subject_id: int, movement: int):
         """指定された被験者・動作のデータソースを作成"""
@@ -521,7 +532,7 @@ class HandVisualizer:
 
                 # 実測値（gloveデータ）
                 if glove is not None:
-                    self._current_gt_angles = glove_to_angles(glove.flatten())
+                    self._current_gt_angles = self._glove_normalizer(glove.flatten())
 
             # 手モデル更新
             angle_scale = self._angle_scale_slider.value() / 10.0

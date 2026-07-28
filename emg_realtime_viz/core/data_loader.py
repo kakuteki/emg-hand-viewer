@@ -60,6 +60,13 @@ class NinaproLoader:
     def _load_data(self):
         """データの読み込み"""
         data = np.load(self.filepath, allow_pickle=True)
+
+        if "segments" not in data:
+            raise ValueError(
+                f"'segments' が入っていません: {self.filepath}"
+                f"（入っているのは {list(data.keys())}）"
+            )
+
         self._raw_segments = data["segments"]
         self._segments: List[Segment] = []
 
