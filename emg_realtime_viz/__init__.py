@@ -25,6 +25,7 @@ Myo Armbandの使用:
     app.run()
 """
 
+from . import qt_compat  # noqa: F401  pyqtgraphより先に読むこと
 from .core.data_loader import NinaproLoader
 from .core.feature_extractor import FeatureExtractor
 from .core.glove import glove_to_angles, normalize_glove, to_hand_angles
