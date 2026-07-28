@@ -192,6 +192,160 @@ class HandSkeleton:
         return parent_map.get(joint_idx)
 
 
+def _rotation_matrix_x(angle: float) -> np.ndarray:
+    """X軸周りの回転行列"""
+    c, s = np.cos(angle), np.sin(angle)
+    return np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
+
+
+def _rotation_matrix_y(angle: float) -> np.ndarray:
+    """Y軸周りの回転行列"""
+    c, s = np.cos(angle), np.sin(angle)
+    return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+
+
+def _rotation_matrix_z(angle: float) -> np.ndarray:
+    """Z軸周りの回転行列"""
+    c, s = np.cos(angle), np.sin(angle)
+    return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+
+
+# 20次元の角度ベクトルのうち、どの指がどこを使うか
+FINGER_ANGLE_SLOTS: List[Tuple[str, List[int], bool]] = [
+    ("thumb", [0, 1, 2, 3], True),
+    ("index", [4, 5, 6, 7], False),
+    ("middle", [8, 9, 10, 11], False),
+    ("ring", [12, 13, 14, 15], False),
+    ("pinky", [16, 17, 18, 19], False),
+]
+
+# 最大屈曲角（90度）
+MAX_FLEXION = np.pi / 2
+
+
+def bone_angles(finger_angles: List[float], is_thumb: bool) -> List[float]:
+    """
+    指ごとの角度を、骨1本ずつに割り当て直す
+
+    親指は手首から中手骨・基節骨・末節骨と4本すべてが動く。
+    他の4本指は手首からMCP（付け根）までが手のひらの骨なので回さない。
+    回さないことで、指を曲げても付け根の位置が動かなくなる。
+    残る3本の骨にMCP・PIP・DIPの角度を割り当てる（TIPの値は使わない）。
+
+    Parameters
+    ----------
+    finger_angles : list of float
+        この指の関節角度（ラジアン）4個
+    is_thumb : bool
+        親指かどうか
+
+    Returns
+    -------
+    list of float
+        骨の本数ぶんの回転角（根元から先端へ）
+    """
+    values = list(finger_angles) + [0.0] * 4
+    if is_thumb:
+        return values[:4]
+    return [0.0] + values[:3]
+
+
+def compute_finger_positions(
+    rest_pose: np.ndarray,
+    finger_chain: List[int],
+    per_bone_angles: List[float],
+    is_thumb: bool = False,
+) -> Dict[int, np.ndarray]:
+    """
+    指のForward Kinematicsを計算
+
+    Parameters
+    ----------
+    rest_pose : np.ndarray
+        休止姿勢の関節位置 (21, 3)
+    finger_chain : list
+        関節インデックスのリスト（根元から先端へ）
+    per_bone_angles : list
+        骨ごとの屈曲角度（ラジアン）
+    is_thumb : bool
+        親指かどうか
+
+    Returns
+    -------
+    dict
+        関節インデックス -> 位置のマップ
+    """
+    positions = {finger_chain[0]: rest_pose[finger_chain[0]].copy()}
+    accumulated_rotation = np.eye(3)
+
+    for i in range(1, len(finger_chain)):
+        parent_idx = finger_chain[i - 1]
+        current_idx = finger_chain[i]
+
+        # 休止姿勢での骨ベクトル
+        bone_vector = rest_pose[current_idx] - rest_pose[parent_idx]
+
+        angle = per_bone_angles[i - 1] if i - 1 < len(per_bone_angles) else 0.0
+
+        # 回転軸を決定
+        if is_thumb and i == 1:
+            # 親指の付け根（CMC）はひねりを伴うので別扱い
+            rotation = _rotation_matrix_z(angle * 0.5)
+        else:
+            # 手のひら側へ曲がる
+            rotation = _rotation_matrix_x(-angle)
+
+        accumulated_rotation = accumulated_rotation @ rotation
+        positions[current_idx] = positions[parent_idx] + accumulated_rotation @ bone_vector
+
+    return positions
+
+
+def forward_kinematics(angles: np.ndarray, angle_scale: float = 1.0) -> np.ndarray:
+    """
+    20次元の関節角度から21点の関節位置を計算する
+
+    描画に依存しない純粋な計算なので、PyQtが無くても使える。
+
+    Parameters
+    ----------
+    angles : np.ndarray
+        関節角度 (20,)。0=伸展、1=最大屈曲
+    angle_scale : float
+        角度のスケーリング係数
+
+    Returns
+    -------
+    np.ndarray
+        関節位置 (21, 3)
+    """
+    # NaNや無限大が座標まで抜けると、描画が黙って壊れて原因が追いにくい
+    values = np.asarray(angles, dtype=np.float64).flatten()
+    values = np.nan_to_num(values, nan=0.0, posinf=1.0, neginf=0.0)
+
+    rest_pose = HandSkeleton.get_rest_pose()
+    positions = rest_pose.copy()
+
+    max_flex = MAX_FLEXION * angle_scale
+
+    for finger_name, angle_indices, is_thumb in FINGER_ANGLE_SLOTS:
+        chain = HandSkeleton.FINGER_CHAINS[finger_name]
+
+        finger_angles = [
+            float(values[idx]) * max_flex if idx < len(values) else 0.0 for idx in angle_indices
+        ]
+
+        finger_positions = compute_finger_positions(
+            rest_pose, chain, bone_angles(finger_angles, is_thumb), is_thumb
+        )
+
+        for joint_idx, pos in finger_positions.items():
+            if joint_idx != HandSkeleton.WRIST:  # 手首は動かさない
+                positions[joint_idx] = pos
+
+    return positions
+
+
 class HandModel3D:
     """
     3D手モデル可視化
@@ -261,84 +415,6 @@ class HandModel3D:
             self._bone_lines.append(line)
             self.gl_widget.addItem(line)
 
-    def _rotation_matrix_x(self, angle: float) -> np.ndarray:
-        """X軸周りの回転行列"""
-        c, s = np.cos(angle), np.sin(angle)
-        return np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
-
-    def _rotation_matrix_y(self, angle: float) -> np.ndarray:
-        """Y軸周りの回転行列"""
-        c, s = np.cos(angle), np.sin(angle)
-        return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
-
-    def _rotation_matrix_z(self, angle: float) -> np.ndarray:
-        """Z軸周りの回転行列"""
-        c, s = np.cos(angle), np.sin(angle)
-        return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
-
-    def _compute_finger_positions(
-        self, finger_chain: List[int], angles: List[float], is_thumb: bool = False
-    ) -> Dict[int, np.ndarray]:
-        """
-        指のForward Kinematicsを計算
-
-        Parameters
-        ----------
-        finger_chain : list
-            関節インデックスのリスト（根元から先端へ）
-        angles : list
-            各関節の屈曲角度（ラジアン）
-        is_thumb : bool
-            親指かどうか
-
-        Returns
-        -------
-        dict
-            関節インデックス -> 位置のマップ
-        """
-        positions = {}
-        rest = self._rest_pose
-
-        # 根元（手首）
-        positions[finger_chain[0]] = rest[finger_chain[0]].copy()
-
-        # 累積回転
-        accumulated_rotation = np.eye(3)
-
-        for i in range(1, len(finger_chain)):
-            parent_idx = finger_chain[i - 1]
-            current_idx = finger_chain[i]
-
-            # 休止姿勢での骨ベクトル
-            bone_vector = rest[current_idx] - rest[parent_idx]
-
-            # この関節の屈曲角度
-            if i - 1 < len(angles):
-                angle = angles[i - 1]
-            else:
-                angle = 0
-
-            # 回転軸を決定
-            if is_thumb:
-                # 親指は複雑な動きをする
-                if i == 1:  # CMC関節
-                    rotation = self._rotation_matrix_z(angle * 0.5)
-                else:
-                    rotation = self._rotation_matrix_x(-angle)
-            else:
-                # 他の指はX軸周りに屈曲（手のひら側へ曲がる）
-                rotation = self._rotation_matrix_x(-angle)
-
-            accumulated_rotation = accumulated_rotation @ rotation
-
-            # 回転した骨ベクトル
-            rotated_bone = accumulated_rotation @ bone_vector
-
-            # 新しい位置
-            positions[current_idx] = positions[parent_idx] + rotated_bone
-
-        return positions
-
     def update_from_angles(self, angles: np.ndarray, angle_scale: float = 1.0):
         """
         関節角度から手のポーズを更新
@@ -350,40 +426,7 @@ class HandModel3D:
         angle_scale : float
             角度のスケーリング係数
         """
-        # 新しい関節位置を計算
-        new_positions = self._rest_pose.copy()
-
-        # 最大屈曲角度（ラジアン）
-        max_flex = np.pi / 2 * angle_scale  # 90度
-
-        # 各指のFK計算
-        finger_data = [
-            ("thumb", [0, 1, 2, 3], True),  # indices 0-3
-            ("index", [4, 5, 6, 7], False),  # indices 4-7
-            ("middle", [8, 9, 10, 11], False),  # indices 8-11
-            ("ring", [12, 13, 14, 15], False),  # indices 12-15
-            ("pinky", [16, 17, 18, 19], False),  # indices 16-19
-        ]
-
-        for finger_name, angle_indices, is_thumb in finger_data:
-            chain = HandSkeleton.FINGER_CHAINS[finger_name]
-
-            # この指の角度を取得
-            finger_angles = []
-            for idx in angle_indices:
-                if idx < len(angles):
-                    # 0-1を0-max_flexにマッピング
-                    finger_angles.append(angles[idx] * max_flex)
-                else:
-                    finger_angles.append(0)
-
-            # FK計算
-            finger_positions = self._compute_finger_positions(chain, finger_angles, is_thumb)
-
-            # 位置を更新
-            for joint_idx, pos in finger_positions.items():
-                if joint_idx != HandSkeleton.WRIST:  # 手首は動かさない
-                    new_positions[joint_idx] = pos
+        new_positions = forward_kinematics(angles, angle_scale)
 
         # スケールと位置を適用
         self._joint_positions = new_positions * self.scale + self.position

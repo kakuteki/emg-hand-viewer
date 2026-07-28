@@ -1,17 +1,27 @@
 #!/usr/bin/env python3
 """
-手モデルのテストスクリプト
+手モデルを手で動かして確かめるためのGUI
+
+指ごとのつまみと、開く・握る・指さす・波のボタンだけの単純なもの。
 """
 
 import sys
+from pathlib import Path
 
 import numpy as np
-import pyqtgraph.opengl as gl
-from PyQt5 import QtWidgets
-from PyQt5.QtCore import QTimer
 
-sys.path.insert(0, ".")
-from emg_realtime_viz.viz.hand_model import HandModel3D
+sys.path.insert(0, str(Path(__file__).parent))
+
+from emg_realtime_viz import qt_compat  # noqa: E402
+
+# pyqtgraphがPySide6を掴まないよう、読み込む前にQtを指定する
+qt_compat.ensure()
+
+import pyqtgraph.opengl as gl  # noqa: E402
+from PyQt5 import QtWidgets  # noqa: E402
+from PyQt5.QtCore import QTimer  # noqa: E402
+
+from emg_realtime_viz.viz.hand_model import HandModel3D  # noqa: E402
 
 
 class HandModelTest:

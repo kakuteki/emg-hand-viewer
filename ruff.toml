@@ -14,6 +14,9 @@ exclude = [
     "venv",
     "build",
     "dist",
+    # 新しいruffはMarkdown内のコード例も整形するが、
+    # READMEの例は読みやすさを優先して手で書いた形のままにする
+    "*.md",
 ]
 
 [lint]

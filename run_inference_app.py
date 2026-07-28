@@ -28,13 +28,27 @@ import numpy as np
 # ライブラリパス
 sys.path.insert(0, str(Path(__file__).parent))
 
-# PyQt5
-import pyqtgraph.opengl as gl
-from PyQt5 import QtWidgets
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtWidgets import QFileDialog, QMessageBox
+# PyTorchはQtより先に読み込む。
+# Windowsで逆の順にすると、torchのDLL初期化が失敗して
+# 学習済みモデルが一切読めなくなる（WinError 1114）。
+try:
+    import torch  # noqa: F401
+except ImportError:
+    pass
 
-from emg_realtime_viz.viz.hand_model import DualHandModel3D
+from emg_realtime_viz import qt_compat
+
+# pyqtgraphがPySide6を掴まないよう、読み込む前にQtを指定する
+qt_compat.ensure()
+
+import pyqtgraph.opengl as gl  # noqa: E402
+from PyQt5 import QtWidgets  # noqa: E402
+from PyQt5.QtCore import Qt, QTimer  # noqa: E402
+from PyQt5.QtWidgets import QFileDialog, QMessageBox  # noqa: E402
+
+from emg_realtime_viz.core.glove import GloveNormalizer  # noqa: E402
+from emg_realtime_viz.core.inference import energy_demo_model, load_torch_model  # noqa: E402
+from emg_realtime_viz.viz.hand_model import DualHandModel3D  # noqa: E402
 
 # デフォルトディレクトリ
 APP_DIR = Path(__file__).parent
@@ -66,12 +80,15 @@ class InferenceApp(QtWidgets.QMainWindow):
         self.current_model_path: Optional[Path] = None
         self.current_data_path: Optional[Path] = None
         self.inference_model: Optional[Callable] = None
+        self.glove_normalizer = GloveNormalizer()
 
         # データ
         self.segments: List[Dict] = []
         self.subjects: List[int] = []
         self.movements: List[int] = []
         self.current_segments: List[Dict] = []
+        self._segment_starts: List[int] = []
+        self._total_frames = 0
 
         # 再生状態
         self.playing = False
@@ -271,8 +288,8 @@ class InferenceApp(QtWidgets.QMainWindow):
         # === 凡例 ===
         legend_group = QtWidgets.QGroupBox("Legend")
         legend_layout = QtWidgets.QVBoxLayout(legend_group)
-        legend_layout.addWidget(QtWidgets.QLabel("Blue: Ground Truth (Left)"))
-        legend_layout.addWidget(QtWidgets.QLabel("Green: Prediction (Right)"))
+        legend_layout.addWidget(QtWidgets.QLabel("Blue: Ground Truth"))
+        legend_layout.addWidget(QtWidgets.QLabel("Green: Prediction"))
         layout.addWidget(legend_group)
 
         # ステータス
@@ -316,7 +333,7 @@ class InferenceApp(QtWidgets.QMainWindow):
         model_data = self.model_combo.currentData()
 
         if model_data == "demo":
-            self.inference_model = self._create_demo_model()
+            self.inference_model = energy_demo_model()
             self.current_model_path = None
             self.model_info_label.setText("Demo model: EMG energy-based estimation")
         else:
@@ -329,56 +346,20 @@ class InferenceApp(QtWidgets.QMainWindow):
     def _load_pytorch_model(self, model_path: Path):
         """PyTorchモデルをロード"""
         try:
-            import torch
-
             self.status_label.setText(f"Loading model: {model_path.name}...")
             QtWidgets.QApplication.processEvents()
 
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-            # モデルをロード
-            model = torch.load(str(model_path), map_location=device)
-            model.eval()
-
-            # 推論関数を作成
-            state = {"prev": None}
-
-            def inference(emg: np.ndarray) -> np.ndarray:
-                with torch.no_grad():
-                    if emg.ndim > 1:
-                        emg = emg.mean(axis=0) if emg.shape[1] == 16 else emg.mean(axis=1)
-
-                    x = torch.tensor(emg, dtype=torch.float32).unsqueeze(0).to(device)
-                    y = model(x).cpu().numpy().flatten()
-
-                    # 0-1にクリップ
-                    y = np.clip(y, 0, 1)
-
-                    # 出力が22次元の場合は20次元に変換
-                    if len(y) == 22:
-                        angles = np.zeros(20)
-                        angles[0:4] = y[0:4]
-                        angles[4:8] = y[4:8]
-                        angles[8:12] = y[8:12]
-                        angles[12:16] = y[12:16]
-                        angles[16:20] = y[16:20]
-                        y = angles
-
-                    # スムージング
-                    if state["prev"] is not None:
-                        y = 0.3 * y + 0.7 * state["prev"]
-                    state["prev"] = y
-
-                    return y
+            inference = load_torch_model(str(model_path))
 
             self.inference_model = inference
             self.current_model_path = model_path
-            self.model_info_label.setText(f"Loaded: {model_path.name}\nDevice: {device}")
+            self.model_info_label.setText(f"Loaded: {model_path.name}\nDevice: {inference.device}")
             self.status_label.setText("Model loaded")
 
         except Exception as e:
             self.model_info_label.setText(f"Error: {str(e)[:100]}")
-            self.inference_model = self._create_demo_model()
+            self.inference_model = energy_demo_model()
+            self.current_model_path = None
             QMessageBox.warning(
                 self, "Model Load Error", f"Failed to load model:\n{e}\n\nUsing demo model."
             )
@@ -468,6 +449,17 @@ class InferenceApp(QtWidgets.QMainWindow):
             self.segments = list(data["segments"])
             self.current_data_path = data_path
 
+            # グローブ値は未校正なので、正規化の範囲はこのデータから決める。
+            # 連結せずに間引いて渡す（全体を持つと1GBを超える）
+            glove_rows = [
+                np.asarray(seg["glove"])
+                for seg in self.segments
+                if "glove" in seg and np.asarray(seg["glove"]).ndim == 2
+            ]
+            self.glove_normalizer = GloveNormalizer()
+            if glove_rows:
+                self.glove_normalizer.fit_segments(glove_rows)
+
             # 利用可能なsubject/movementを取得
             self.subjects = sorted(set(seg["subject_id"] for seg in self.segments))
             self.movements = sorted(set(seg["movement"] for seg in self.segments))
@@ -556,6 +548,14 @@ class InferenceApp(QtWidgets.QMainWindow):
             if seg["subject_id"] == subject and seg["movement"] == movement
         ]
 
+        # 進捗の計算に使う総フレーム数は、選び直したときだけ数え直す
+        self._segment_starts = []
+        total = 0
+        for seg in self.current_segments:
+            self._segment_starts.append(total)
+            total += seg["emg"].shape[0]
+        self._total_frames = total
+
         self.segment_label.setText(f"Segments: {len(self.current_segments)}")
         self._reset_playback()
 
@@ -586,7 +586,7 @@ class InferenceApp(QtWidgets.QMainWindow):
             return
 
         if self.inference_model is None:
-            self.inference_model = self._create_demo_model()
+            self.inference_model = energy_demo_model()
 
         self.playing = not self.playing
 
@@ -626,11 +626,24 @@ class InferenceApp(QtWidgets.QMainWindow):
 
         # Ground Truth
         glove_frame = glove[self.current_frame_idx, :]
-        gt_angles = self._normalize_glove(glove_frame)
+        gt_angles = self.glove_normalizer(glove_frame)
 
-        # 推論
+        # 推論（EMGの生値をそのまま渡す）
         if self.inference_model:
-            pred_angles = self.inference_model(emg_frame)
+            try:
+                pred_angles = self.inference_model(emg_frame)
+            except Exception as e:
+                self.playing = False
+                self.play_btn.setText("Play")
+                self.timer.stop()
+                self.status_label.setText("Inference stopped")
+                QMessageBox.warning(
+                    self,
+                    "Inference Error",
+                    f"推論に失敗しました:\n{e}\n\nデモモデルに切り替えます。",
+                )
+                self.inference_model = energy_demo_model()
+                return
         else:
             pred_angles = gt_angles.copy()
 
@@ -642,11 +655,8 @@ class InferenceApp(QtWidgets.QMainWindow):
         self.hand_model.prediction.update_from_angles(pred_angles, scale)
 
         # UI更新
-        total_frames = sum(seg["emg"].shape[0] for seg in self.current_segments)
-        current_total = (
-            sum(self.current_segments[i]["emg"].shape[0] for i in range(self.current_seg_idx))
-            + self.current_frame_idx
-        )
+        total_frames = self._total_frames
+        current_total = self._segment_starts[self.current_seg_idx] + self.current_frame_idx
 
         progress = int(100 * current_total / total_frames) if total_frames > 0 else 0
         self.progress_bar.setValue(progress)
@@ -664,102 +674,39 @@ class InferenceApp(QtWidgets.QMainWindow):
                 self.current_seg_idx = 0
                 self.status_label.setText("Looping...")
 
+    # ========== 外から選ばせる ==========
+
+    def select_model(self, model_path: Path):
+        """
+        指定したモデルを選ぶ
+
+        一覧に無ければ一覧に足してから選ぶ。直接読み込むだけだと
+        コンボの表示が "Demo Model" のまま残り、実際に動いている
+        モデルと画面の表示が食い違う。
+        """
+        model_path = Path(model_path)
+        for i in range(self.model_combo.count()):
+            if self.model_combo.itemData(i) == str(model_path):
+                self.model_combo.setCurrentIndex(i)
+                return
+
+        self.available_models[model_path.stem] = model_path
+        self.model_combo.addItem(model_path.stem, str(model_path))
+        self.model_combo.setCurrentIndex(self.model_combo.count() - 1)
+
+    def select_data(self, data_path: Path):
+        """指定したデータファイルを選ぶ（一覧に無ければ足す）"""
+        data_path = Path(data_path)
+        for i in range(self.data_combo.count()):
+            if self.data_combo.itemData(i) == str(data_path):
+                self.data_combo.setCurrentIndex(i)
+                return
+
+        self.available_data[data_path.stem] = data_path
+        self.data_combo.addItem(data_path.stem, str(data_path))
+        self.data_combo.setCurrentIndex(self.data_combo.count() - 1)
+
     # ========== ユーティリティ ==========
-
-    def _normalize_glove(self, glove: np.ndarray) -> np.ndarray:
-        """Gloveデータを正規化"""
-        glove_min = np.array(
-            [
-                -30,
-                -30,
-                -10,
-                -10,
-                -20,
-                -10,
-                -10,
-                -10,
-                -20,
-                -10,
-                -10,
-                -10,
-                -20,
-                -10,
-                -10,
-                -10,
-                -20,
-                -10,
-                -10,
-                -10,
-                0,
-                0,
-            ]
-        )
-        glove_max = np.array(
-            [
-                100,
-                100,
-                100,
-                100,
-                120,
-                100,
-                100,
-                100,
-                120,
-                100,
-                100,
-                100,
-                120,
-                100,
-                100,
-                100,
-                120,
-                100,
-                100,
-                100,
-                50,
-                50,
-            ]
-        )
-
-        normalized = (glove - glove_min) / (glove_max - glove_min + 1e-8)
-        normalized = np.clip(normalized, 0, 1)
-
-        angles = np.zeros(20)
-        angles[0:4] = normalized[0:4]
-        angles[4:8] = normalized[4:8]
-        angles[8:12] = normalized[8:12]
-        angles[12:16] = normalized[12:16]
-        angles[16:20] = normalized[16:20]
-
-        return angles
-
-    def _create_demo_model(self) -> Callable:
-        """デモ用推論モデル"""
-        state = {"prev": np.zeros(20)}
-
-        def inference(emg: np.ndarray) -> np.ndarray:
-            energy = np.abs(emg)
-            energy = np.clip(energy / 100, 0, 1)
-
-            angles = np.zeros(20)
-
-            # チャンネルを指にマッピング
-            for finger in range(5):
-                base = finger * 4
-                ch_start = finger * 3
-                ch_end = min(ch_start + 3, len(energy))
-                finger_energy = np.mean(energy[ch_start:ch_end]) if ch_start < len(energy) else 0
-
-                for joint in range(4):
-                    angles[base + joint] = finger_energy * (0.7 + joint * 0.1)
-
-            # スムージング
-            smoothed = 0.3 * angles + 0.7 * state["prev"]
-            state["prev"] = smoothed
-
-            return np.clip(smoothed, 0, 1)
-
-        return inference
 
     def closeEvent(self, event):
         """ウィンドウクローズ時"""
@@ -783,23 +730,17 @@ def main():
     if args.model:
         model_path = Path(args.model)
         if model_path.exists():
-            # コンボボックスで該当モデルを探す
-            for i in range(window.model_combo.count()):
-                if window.model_combo.itemData(i) == str(model_path):
-                    window.model_combo.setCurrentIndex(i)
-                    break
-            else:
-                # リストにない場合は直接ロード
-                window._load_pytorch_model(model_path)
+            window.select_model(model_path)
+        else:
+            print(f"モデルファイルが見つかりません: {model_path}")
 
     # 初期データ指定があれば選択
     if args.data:
         data_path = Path(args.data)
         if data_path.exists():
-            for i in range(window.data_combo.count()):
-                if window.data_combo.itemData(i) == str(data_path):
-                    window.data_combo.setCurrentIndex(i)
-                    break
+            window.select_data(data_path)
+        else:
+            print(f"データファイルが見つかりません: {data_path}")
 
     window.show()
     sys.exit(app.exec_())

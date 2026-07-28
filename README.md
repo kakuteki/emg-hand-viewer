@@ -22,37 +22,43 @@
 ## インストール
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/emg-hand-pose.git
-cd emg-hand-pose
+git clone https://github.com/kakuteki/emg-hand-viewer.git
+cd emg-hand-viewer
 pip install -r requirements.txt
 ```
 
 ### 依存パッケージ
 
-- Python 3.8以上
-- PyQt5
-- pyqtgraph
-- PyOpenGL
+必須は表示に使うものだけです。
+
+- Python 3.9以上
 - NumPy
-- PyTorch（推論モデル使用時）
+- PyQt5 / pyqtgraph / PyOpenGL
+
+用途に応じて追加します。
+
+- PyTorch: 学習済みモデルを使うとき（`pip install torch`）
+- pyomyo: Myo Armbandを実機で使うとき（`pip install pyomyo`）
+- pytest / ruff: 開発時（`pip install -r requirements-dev.txt`）
 
 ## 使い方
 
 ### 1. EMG推論ビューワー（GUI）
 
 Subject/Movementをプルダウンメニューで選択し、EMGデータの再生と推論結果の表示を行います。
+モデルは`models/`、データは`data/`に置くと自動で一覧に出ます（画面のImportボタンでも取り込めます）。
 
 ```bash
 python run_inference_app.py
 ```
 
 オプション:
-- `--file`, `-f`: データファイルパス（デフォルト: ninapro_db5_segmented.npz）
-- `--model`, `-m`: 学習済みモデルパス（.pth）
+- `--model`, `-m`: 起動時に選ぶ学習済みモデル（.pth）
+- `--data`, `-d`: 起動時に選ぶデータファイル（.npz）
 
 ```bash
 # 学習済みモデルを指定して起動
-python run_inference_app.py --model best_model.pth
+python run_inference_app.py --model models/best_model.pth
 ```
 
 ### 2. 手モデルビューワー
@@ -82,122 +88,75 @@ python run_realtime_viz.py
 
 他のアプリケーションから手モデルを制御するためのAPIを提供しています。
 
-### 基本的な使い方
+QtのGUIは主スレッドでしか作れません。そのため使い方は次の2通りです。
+（以前の版にあった「別スレッドでGUIを回す」使い方はQtの制約で動かないため、
+呼ぶと理由を添えた例外になります）
+
+### 1. 自分のループの中で回す
 
 ```python
 from emg_realtime_viz import HandViewer
-import numpy as np
 
-# ビューワーを作成
 viewer = HandViewer(
     title="My Hand Viewer",
     show_ground_truth=True,
     show_prediction=True,
     angle_scale=1.0
 )
+viewer.open()
 
-# 別スレッドでビューワーを起動
-viewer.start()
+while viewer.process():
+    emg_frame = get_emg_from_sensor()
+    viewer.set_prediction(model.predict(emg_frame))   # ここで描画も進む
 
-# メインループで手のポーズを更新
-while viewer.is_running():
-    # EMGデータを取得（例）
-    emg_data = get_emg_from_sensor()
-
-    # モデルで推論
-    predicted_angles = model.predict(emg_data)
-
-    # 予測値（緑の手）を更新
-    viewer.set_prediction(predicted_angles)
-
-    # 実測値がある場合（青の手）
     if ground_truth is not None:
         viewer.set_ground_truth(ground_truth)
 
-# 終了
-viewer.stop()
+viewer.close()
 ```
 
-### コンテキストマネージャーを使用
+`with` でも同じことができます。
 
 ```python
 from emg_realtime_viz import HandViewerContext
 
 with HandViewerContext() as viewer:
     for emg_frame in data_stream:
-        prediction = model.predict(emg_frame)
-        viewer.set_prediction(prediction)
+        viewer.set_prediction(model.predict(emg_frame))
+        if not viewer.is_running():
+            break
+```
 
-# withブロックを抜けると自動的にビューワーが終了
+### 2. データ供給を別スレッドにする
+
+ウィンドウを閉じるまで `run()` から戻りません。
+
+```python
+from emg_realtime_viz import HandViewer
+
+def producer(viewer):
+    while viewer.is_running():
+        viewer.set_prediction(model.predict(get_emg_from_sensor()))
+
+HandViewer().run(producer)
 ```
 
 ### HandViewer API リファレンス
 
-```python
-class HandViewer:
-    def __init__(
-        self,
-        title: str = "Hand Viewer",
-        size: tuple = (800, 600),
-        show_ground_truth: bool = True,
-        show_prediction: bool = True,
-        angle_scale: float = 1.0
-    ):
-        """
-        Parameters
-        ----------
-        title : str
-            ウィンドウタイトル
-        size : tuple
-            ウィンドウサイズ (width, height)
-        show_ground_truth : bool
-            実測値（青い手）を表示するか
-        show_prediction : bool
-            予測値（緑の手）を表示するか
-        angle_scale : float
-            関節角度の表示スケール
-        """
+| メソッド | 役割 |
+|---------|------|
+| `open()` | ウィンドウを作る（主スレッドから呼ぶこと。イベントループは回さない） |
+| `process()` | 溜まった描画と入力を処理する。開いていれば `True` を返す |
+| `run(producer=None)` | イベントループを回す。`producer` は別スレッドで実行される |
+| `close()` / `stop()` | 閉じる（どのスレッドからでも呼べる） |
+| `is_running()` | 動いているか |
+| `set_prediction(angles)` | 予測値（緑の手）を更新。20次元・0-1 |
+| `set_ground_truth(angles)` | 実測値（青の手）を更新。20次元・0-1 |
+| `set_both(gt, pred)` | 両手を同時に更新 |
+| `set_angle_scale(scale)` | 角度のスケールを変える |
 
-    def start(self, blocking: bool = False):
-        """
-        ビューワーを開始
-
-        Parameters
-        ----------
-        blocking : bool
-            Trueの場合、ウィンドウが閉じるまでブロック
-            Falseの場合、別スレッドで実行（デフォルト）
-        """
-
-    def stop(self):
-        """ビューワーを停止"""
-
-    def set_prediction(self, angles: np.ndarray):
-        """
-        予測値（緑の手）を更新
-
-        Parameters
-        ----------
-        angles : np.ndarray
-            関節角度 shape=(20,)、各値は0-1の範囲
-        """
-
-    def set_ground_truth(self, angles: np.ndarray):
-        """
-        実測値（青の手）を更新
-
-        Parameters
-        ----------
-        angles : np.ndarray
-            関節角度 shape=(20,)、各値は0-1の範囲
-        """
-
-    def set_both(self, ground_truth: np.ndarray, prediction: np.ndarray):
-        """両手を同時に更新"""
-
-    def is_running(self) -> bool:
-        """ビューワーが実行中かどうかを返す"""
-```
+姿勢の更新はどのスレッドからでも呼べます。主スレッドから呼んだ場合はその場で描画まで進み、
+別スレッドから呼んだ場合はキューに積まれてGUI側が取り出します。
 
 ## 手モデルの関節角度
 
@@ -212,15 +171,61 @@ class HandViewer:
 | 12-15 | 薬指 (MCP, PIP, DIP, TIP) |
 | 16-19 | 小指 (MCP, PIP, DIP, TIP) |
 
+骨格の動かし方は次のとおりです。
+
+- 親指は手首からの4本の骨がすべて回ります
+- 他の4本指は、手首からMCP（付け根）までが手のひらの骨なので回しません。
+  曲げても付け根の位置は動きません。残る3本の骨にMCP・PIP・DIPを割り当てるため、
+  TIPの値は姿勢計算には使われません
+- 描画なしで姿勢だけ計算したい場合は `forward_kinematics(angles)` を使います
+  （21点の関節位置を返す。PyQtは不要）
+
+## 推論モデルの入出力
+
+推論関数はすべて「EMGの1フレーム（生値）を受け取り、20次元の関節角度（0-1）を返す」形にそろえてあります。
+特徴量ではなく生値を渡すのは、学習時の入力に合わせるためです。
+
+`load_torch_model()` は、モデルが受け付ける入力の形を最初の呼び出しで次の順に試し、通った形を覚えます。
+
+1. `(1, 20, 16)` 時系列モデル（LSTM等）
+2. `(1, 16)` 1フレーム入力のモデル
+3. `(1, 320)` 窓を平らに並べたモデル
+
+例外が出ないことだけでは判別できない点に注意しています。全結合層は`(1, 20, 16)`を渡しても
+内部で時間方向に放送されて`(1, 20, 22)`を返してしまうため、出力の要素数が20か22であることまで
+確かめたうえで入力の形を決めています。
+
+出力が22次元のときはグローブと同じ並びとみなし、屈曲センサに当たる列だけを取り出します
+（後述の`FLEXION_COLUMNS`）。20次元のときは手モデルの並びとしてそのまま使います。
+**出力は0-1の範囲であることを前提**にしており、範囲外は0と1に丸めます。
+標準化した値（平均0）を出すモデルは、手が伸びたまま動かないように見えるので、
+学習側の出口にsigmoidなどを入れてください。
+
+## 環境の注意点
+
+- **PyTorchはQtより先に読み込む必要があります。** 逆にするとWindowsでtorchのDLL初期化が
+  失敗し（WinError 1114）、学習済みモデルが一切読めません。起動スクリプトの側で対処済みですが、
+  自分でスクリプトを書くときは`import torch`を先に置いてください
+- **PySide6が入っている環境**では、pyqtgraphがそちらを掴んでQtが二重に載り、
+  `QWidget: Must construct a QApplication before a QWidget`で即クラッシュします。
+  `emg_realtime_viz.qt_compat`が読み込み前にPyQt5を指定して防いでいます。
+  このライブラリはPyQt5を直接使うので、環境変数`PYQTGRAPH_QT_LIB`に別のQtを
+  指定すると同じ問題が再発します（その場合は警告を出します）
+- 同じプロセスで3D表示のウィンドウを閉じてから開き直すと、pyqtgraph側の都合で
+  描画に失敗することがあります。開き直す場合はプロセスを分けてください
+
 ## プロジェクト構成
 
 ```
 .
 ├── emg_realtime_viz/           # メインライブラリ
 │   ├── __init__.py
+│   ├── qt_compat.py            # pyqtgraphが使うQtの指定
 │   ├── core/                   # コア機能
 │   │   ├── data_loader.py      # Ninaproデータローダー
 │   │   ├── feature_extractor.py # EMG特徴量抽出
+│   │   ├── glove.py            # グローブ値の正規化（唯一の定義元）
+│   │   ├── inference.py        # モデル読み込みと推論関数
 │   │   └── stream.py           # データストリーミング
 │   ├── devices/                # デバイス対応
 │   │   ├── base.py             # 基底クラス
@@ -228,20 +233,68 @@ class HandViewer:
 │   │   └── myo_source.py       # Myo Armband対応
 │   └── viz/                    # 可視化
 │       ├── realtime_3d.py      # リアルタイム3D表示
-│       ├── hand_model.py       # 手の3Dモデル
+│       ├── hand_model.py       # 手の3Dモデルと順運動学
 │       ├── hand_visualizer.py  # 統合ビューワー
 │       └── hand_viewer.py      # 外部API（Wrapper）
 │
 ├── run_inference_app.py        # 推論アプリ（メインGUI）
 ├── run_hand_viz.py             # 手モデルビューワー
 ├── run_realtime_viz.py         # リアルタイム可視化
-├── test_hand_model.py          # 手モデルテスト
+├── hand_model_playground.py    # 手モデルを手で動かす確認用GUI
+├── tests/                      # 自動試験（pytest・GUI不要）
 │
 ├── requirements.txt
+├── requirements-dev.txt
+├── pyproject.toml              # パッケージ定義とpytest設定
 ├── ruff.toml                   # Linter設定
 ├── README.md
 └── LICENSE
 ```
+
+## 開発
+
+```bash
+pip install -r requirements-dev.txt
+
+pytest              # 試験（GUIもPyQtも不要）
+ruff check .        # 文法・書式の検査
+ruff format .       # 書式の自動整形
+```
+
+手モデルの動きだけ手早く確かめたいときは、指ごとのつまみと
+「開く / 握る / 指さす / 波」のボタンが付いた確認用GUIを使います。
+
+```bash
+python hand_model_playground.py
+```
+
+## データグローブの扱い
+
+DB5が使うCyberGlove IIの22センサは、**指1本あたり屈曲3個（計15個）、指の間の外転4個、
+手のひらのそり1個、手首2個**という構成です（3×5 + 4 + 1 + 2 = 22）。
+「指1本あたり4個 × 5本 + 手首2個」ではありません。
+
+そのため、先頭20列をそのまま指の関節と見なすと、外転センサや手のひらのそりを
+指の曲げとして扱ってしまいます。使う列は`FLEXION_COLUMNS`で明示しています。
+
+```python
+FLEXION_COLUMNS = {
+    "thumb":  (0, 1, 2),    # ひねり(CMC), MP, IP
+    "index":  (4, 5, 6),    # MP, PIP, DIP
+    "middle": (8, 9, 10),
+    "ring":   (12, 13, 14),
+    "pinky":  (16, 17, 18),
+}
+```
+
+⚠ 列の並びを断定できる一次資料は確認できていません。Ninapro公式の説明ページ
+（ninapro.hevs.ch/node/123）は現在404です。上の並びはCyberGloveの取扱説明書に沿ったもので、
+屈曲センサを先にまとめて並べる実装向けに`FLEXION_COLUMNS_GROUPED`も用意しています。
+実データで確かめる場合は、指を1本ずつ曲げた区間で各列との相関を見てください。
+
+値は未校正（角度に比例する生の値）なので、正規化の範囲は読み込んだデータの分位点から
+求めます（`GloveNormalizer`）。度数を仮定した固定の範囲は、データから求められないときの
+最後の手段です。
 
 ## データ
 

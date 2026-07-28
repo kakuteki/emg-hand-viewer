@@ -12,12 +12,11 @@
 *.pkl
 
 # Results and outputs
-*.json
-*.png
-*.pdf
-*.gif
-*.jpg
-*.jpeg
+# 拡張子だけで全部無視すると、設定ファイルや説明用の図まで
+# 黙って落ちるので、出力先のディレクトリに絞る
+outputs/
+results/
+figures/
 
 # Python
 __pycache__/
@@ -31,8 +30,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
 parts/
 sdist/
 var/

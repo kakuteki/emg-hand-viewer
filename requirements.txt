@@ -1,23 +1,14 @@
-# Core dependencies
+# 手モデルの表示に必要なもの
 numpy>=1.20.0
-scipy>=1.7.0
-
-# Visualization
 PyQt5>=5.15.0
 pyqtgraph>=0.12.0
 PyOpenGL>=3.1.0
 
-# Machine Learning (optional, for training/inference)
-torch>=1.9.0
-optuna>=2.10.0
-
-# Data processing
-pandas>=1.3.0
-scikit-learn>=0.24.0
-
-# Plotting
-matplotlib>=3.4.0
-seaborn>=0.11.0
-
-# Audio/Signal processing (for mel spectrogram features)
-librosa>=0.8.0
+# 学習済みモデル（.pth）を使う場合のみ必要
+# pip install torch
+#
+# Myo Armbandを実機で使う場合のみ必要
+# pip install pyomyo
+#
+# 開発（試験・書式チェック）
+# pip install pytest ruff

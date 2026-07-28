@@ -60,8 +60,24 @@ class NinaproLoader:
     def _load_data(self):
         """データの読み込み"""
         data = np.load(self.filepath, allow_pickle=True)
+
+        if "segments" not in data:
+            raise ValueError(
+                f"'segments' が入っていません: {self.filepath}"
+                f"（入っているのは {list(data.keys())}）"
+            )
+
         self._raw_segments = data["segments"]
         self._segments: List[Segment] = []
+
+        required = ("subject_id", "exercise_id", "movement", "repetition", "emg", "glove")
+
+        for index, seg in enumerate(self._raw_segments):
+            missing = [key for key in required if key not in seg]
+            if missing:
+                raise ValueError(
+                    f"{index}番目のセグメントに項目が足りません: {missing}（{self.filepath}）"
+                )
 
         for seg in self._raw_segments:
             self._segments.append(

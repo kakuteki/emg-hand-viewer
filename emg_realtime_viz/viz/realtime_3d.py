@@ -176,16 +176,16 @@ class RealtimeVisualizer:
         playback_group = QtWidgets.QGroupBox("Playback")
         playback_layout = QtWidgets.QHBoxLayout(playback_group)
 
-        self._btn_play = QtWidgets.QPushButton("▶ Play")
+        self._btn_play = QtWidgets.QPushButton("Play")
         self._btn_play.clicked.connect(self._on_play)
         playback_layout.addWidget(self._btn_play)
 
-        self._btn_pause = QtWidgets.QPushButton("⏸ Pause")
+        self._btn_pause = QtWidgets.QPushButton("Pause")
         self._btn_pause.clicked.connect(self._on_pause)
         self._btn_pause.setEnabled(False)
         playback_layout.addWidget(self._btn_pause)
 
-        self._btn_reset = QtWidgets.QPushButton("⏹ Reset")
+        self._btn_reset = QtWidgets.QPushButton("Reset")
         self._btn_reset.clicked.connect(self._on_reset)
         playback_layout.addWidget(self._btn_reset)
 
