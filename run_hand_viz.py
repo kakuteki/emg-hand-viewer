@@ -23,6 +23,14 @@ from pathlib import Path
 # ライブラリパスを追加
 sys.path.insert(0, str(Path(__file__).parent))
 
+# モデルを使うときは、PyTorchをQtより先に読み込む。
+# Windowsで逆の順にするとtorchのDLL初期化が失敗する（WinError 1114）。
+if "--model" in sys.argv:
+    try:
+        import torch  # noqa: F401
+    except ImportError:
+        pass
+
 from emg_realtime_viz import (
     HandVisualizer,
 )

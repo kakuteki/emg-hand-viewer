@@ -20,10 +20,13 @@ from typing import Callable, Optional
 
 import numpy as np
 
-from .glove import N_HAND_ANGLES, to_hand_angles
+from .glove import N_GLOVE_SENSORS, N_HAND_ANGLES, to_hand_angles
 
 # 学習時の窓長（20サンプル = 100ms @ 200Hz）
 DEFAULT_WINDOW_SIZE = 20
+
+# 妥当な出力の要素数（20=手モデルの角度、22=グローブと同じ並び）
+ACCEPTED_OUTPUT_SIZES = (N_HAND_ANGLES, N_GLOVE_SENSORS)
 
 # PyTorchは重いので、必要になった時点で読み込む
 _TORCH = None
@@ -56,6 +59,10 @@ class TorchInference:
         1. (1, window_size, n_channels)  時系列モデル（LSTM等）
         2. (1, n_channels)               1フレーム入力のモデル
         3. (1, window_size * n_channels) 窓を平らに並べたモデル
+
+    例外が出ないことだけでは判別できない点に注意。全結合層は
+    (1, 20, 16) を渡しても内部で時間方向に放送されて (1, 20, 22) を
+    返してしまうため、出力の要素数が20か22であることまで確かめる。
 
     Parameters
     ----------
@@ -168,11 +175,22 @@ class TorchInference:
 
         for mode in modes:
             try:
-                raw = self._forward(mode)
-                self._input_mode = mode
-                break
+                candidate = self._forward(mode)
             except Exception as e:  # 入力の形が合わないときだけ次を試す
                 errors.append(f"{mode}: {e}")
+                continue
+
+            if candidate.size not in ACCEPTED_OUTPUT_SIZES:
+                # 例外は出なかったが、出力の形から見て入力の解釈が違う
+                errors.append(
+                    f"{mode}: 出力の要素数が{candidate.size}個（期待は"
+                    f"{'か'.join(str(n) for n in ACCEPTED_OUTPUT_SIZES)}個）"
+                )
+                continue
+
+            raw = candidate
+            self._input_mode = mode
+            break
 
         if raw is None:
             self._last_error = " / ".join(errors)
