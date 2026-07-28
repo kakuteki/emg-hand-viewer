@@ -22,37 +22,43 @@
 ## インストール
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/emg-hand-pose.git
-cd emg-hand-pose
+git clone https://github.com/kakuteki/emg-hand-viewer.git
+cd emg-hand-viewer
 pip install -r requirements.txt
 ```
 
 ### 依存パッケージ
 
-- Python 3.8以上
-- PyQt5
-- pyqtgraph
-- PyOpenGL
+必須は表示に使うものだけです。
+
+- Python 3.9以上
 - NumPy
-- PyTorch（推論モデル使用時）
+- PyQt5 / pyqtgraph / PyOpenGL
+
+用途に応じて追加します。
+
+- PyTorch: 学習済みモデルを使うとき（`pip install torch`）
+- pyomyo: Myo Armbandを実機で使うとき（`pip install pyomyo`）
+- pytest / ruff: 開発時（`pip install -r requirements-dev.txt`）
 
 ## 使い方
 
 ### 1. EMG推論ビューワー（GUI）
 
 Subject/Movementをプルダウンメニューで選択し、EMGデータの再生と推論結果の表示を行います。
+モデルは`models/`、データは`data/`に置くと自動で一覧に出ます（画面のImportボタンでも取り込めます）。
 
 ```bash
 python run_inference_app.py
 ```
 
 オプション:
-- `--file`, `-f`: データファイルパス（デフォルト: ninapro_db5_segmented.npz）
-- `--model`, `-m`: 学習済みモデルパス（.pth）
+- `--model`, `-m`: 起動時に選ぶ学習済みモデル（.pth）
+- `--data`, `-d`: 起動時に選ぶデータファイル（.npz）
 
 ```bash
 # 学習済みモデルを指定して起動
-python run_inference_app.py --model best_model.pth
+python run_inference_app.py --model models/best_model.pth
 ```
 
 ### 2. 手モデルビューワー
@@ -212,6 +218,28 @@ class HandViewer:
 | 12-15 | 薬指 (MCP, PIP, DIP, TIP) |
 | 16-19 | 小指 (MCP, PIP, DIP, TIP) |
 
+骨格の動かし方は次のとおりです。
+
+- 親指は手首からの4本の骨がすべて回ります
+- 他の4本指は、手首からMCP（付け根）までが手のひらの骨なので回しません。
+  曲げても付け根の位置は動きません。残る3本の骨にMCP・PIP・DIPを割り当てるため、
+  TIPの値は姿勢計算には使われません
+- 描画なしで姿勢だけ計算したい場合は `forward_kinematics(angles)` を使います
+  （21点の関節位置を返す。PyQtは不要）
+
+## 推論モデルの入出力
+
+推論関数はすべて「EMGの1フレーム（生値）を受け取り、20次元の関節角度（0-1）を返す」形にそろえてあります。
+特徴量ではなく生値を渡すのは、学習時の入力に合わせるためです。
+
+`load_torch_model()` は、モデルが受け付ける入力の形を最初の呼び出しで次の順に試し、通った形を覚えます。
+
+1. `(1, 20, 16)` 時系列モデル（LSTM等）
+2. `(1, 16)` 1フレーム入力のモデル
+3. `(1, 320)` 窓を平らに並べたモデル
+
+出力が22次元（グローブと同じ並び）のときは先頭20要素を使います。
+
 ## プロジェクト構成
 
 ```
@@ -221,6 +249,8 @@ class HandViewer:
 │   ├── core/                   # コア機能
 │   │   ├── data_loader.py      # Ninaproデータローダー
 │   │   ├── feature_extractor.py # EMG特徴量抽出
+│   │   ├── glove.py            # グローブ値の正規化（唯一の定義元）
+│   │   ├── inference.py        # モデル読み込みと推論関数
 │   │   └── stream.py           # データストリーミング
 │   ├── devices/                # デバイス対応
 │   │   ├── base.py             # 基底クラス
@@ -228,19 +258,39 @@ class HandViewer:
 │   │   └── myo_source.py       # Myo Armband対応
 │   └── viz/                    # 可視化
 │       ├── realtime_3d.py      # リアルタイム3D表示
-│       ├── hand_model.py       # 手の3Dモデル
+│       ├── hand_model.py       # 手の3Dモデルと順運動学
 │       ├── hand_visualizer.py  # 統合ビューワー
 │       └── hand_viewer.py      # 外部API（Wrapper）
 │
 ├── run_inference_app.py        # 推論アプリ（メインGUI）
 ├── run_hand_viz.py             # 手モデルビューワー
 ├── run_realtime_viz.py         # リアルタイム可視化
-├── test_hand_model.py          # 手モデルテスト
+├── hand_model_playground.py    # 手モデルを手で動かす確認用GUI
+├── tests/                      # 自動試験（pytest・GUI不要）
 │
 ├── requirements.txt
+├── requirements-dev.txt
+├── pyproject.toml              # パッケージ定義とpytest設定
 ├── ruff.toml                   # Linter設定
 ├── README.md
 └── LICENSE
+```
+
+## 開発
+
+```bash
+pip install -r requirements-dev.txt
+
+pytest              # 試験（GUIもPyQtも不要）
+ruff check .        # 文法・書式の検査
+ruff format .       # 書式の自動整形
+```
+
+手モデルの動きだけ手早く確かめたいときは、指ごとのつまみと
+「開く / 握る / 指さす / 波」のボタンが付いた確認用GUIを使います。
+
+```bash
+python hand_model_playground.py
 ```
 
 ## データ
