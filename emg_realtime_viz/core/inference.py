@@ -167,6 +167,14 @@ class TorchInference:
             どの入力の形でもモデルが動かなかった場合
         """
         frame = np.asarray(emg_frame, dtype=np.float32).flatten()
+
+        # チャンネル数が変わったら窓を捨てる。混ざったまま積むと
+        # 配列にできず、モデルのせいのような分かりにくい例外になる。
+        if self._buffer and len(self._buffer[0]) != len(frame):
+            self._buffer.clear()
+            self._input_mode = None
+            self._prev = None
+
         self._buffer.append(frame)
 
         modes = (self._input_mode,) if self._input_mode else self.INPUT_MODES

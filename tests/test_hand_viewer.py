@@ -5,10 +5,12 @@ import threading
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5", reason="PyQt5が無い環境ではHandViewerを組み立てられない")
-pytest.importorskip("pyqtgraph", reason="pyqtgraphが必要")
+from emg_realtime_viz.viz import hand_viewer as hv
 
-from emg_realtime_viz import HandViewer  # noqa: E402
+# PyQt5とpyqtgraphの両方が読み込めたときだけ意味のある試験
+pytestmark = pytest.mark.skipif(not hv.HAS_PYQT, reason="PyQt5 / pyqtgraph が読み込めない環境")
+
+HandViewer = hv.HandViewer
 
 
 def test_別スレッドでGUIを回す指定は例外():

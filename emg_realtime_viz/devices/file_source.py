@@ -95,6 +95,8 @@ class NinaproDataSource(DataSource):
         # 位置を進めてからyieldする。yieldの後で進めると、
         # 中断中にreset()されても次の再開時に上書きしてしまい、
         # 画面のResetボタンを押しても先頭に戻らない。
+        skipped = 0
+
         while True:
             if self._current_segment_idx >= len(self._segments):
                 if not self.loop:
@@ -107,6 +109,12 @@ class NinaproDataSource(DataSource):
             if self._current_sample_idx >= segment.n_samples:
                 self._current_sample_idx = 0
                 self._current_segment_idx += 1
+
+                # 中身が空のセグメントばかりだと、ループ指定のときに
+                # 1件も返さないまま回り続けてしまうので打ち切る
+                skipped += 1
+                if skipped > len(self._segments):
+                    return
                 continue
 
             sample_idx = self._current_sample_idx
@@ -124,6 +132,7 @@ class NinaproDataSource(DataSource):
             }
 
             self._current_sample_idx = sample_idx + 1
+            skipped = 0
 
             yield emg, glove, metadata
 
@@ -141,9 +150,12 @@ class NinaproDataSource(DataSource):
         """現在の進捗 (segment_idx, n_segments, sample_idx, n_samples)"""
         if not self._segments:
             return (0, 0, 0, 0)
-        seg = self._segments[self._current_segment_idx]
+
+        # 最後まで再生し終えた直後はセグメント番号が末尾を越えているので丸める
+        seg_idx = min(self._current_segment_idx, len(self._segments) - 1)
+        seg = self._segments[seg_idx]
         return (
-            self._current_segment_idx,
+            seg_idx,
             len(self._segments),
             self._current_sample_idx,
             seg.n_samples,
@@ -190,6 +202,8 @@ class FilePlaybackSource(DataSource):
         self,
     ) -> Generator[Tuple[np.ndarray, Optional[np.ndarray], Dict[str, Any]], None, None]:
         n_samples = len(self.emg_data)
+        if n_samples == 0:
+            return
 
         # NinaproDataSourceと同じ理由で、進めてからyieldする
         while True:

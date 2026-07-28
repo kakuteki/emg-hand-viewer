@@ -208,7 +208,8 @@ HandViewer().run(producer)
 - **PySide6が入っている環境**では、pyqtgraphがそちらを掴んでQtが二重に載り、
   `QWidget: Must construct a QApplication before a QWidget`で即クラッシュします。
   `emg_realtime_viz.qt_compat`が読み込み前にPyQt5を指定して防いでいます。
-  別のQtを使いたい場合は環境変数`PYQTGRAPH_QT_LIB`で上書きできます
+  このライブラリはPyQt5を直接使うので、環境変数`PYQTGRAPH_QT_LIB`に別のQtを
+  指定すると同じ問題が再発します（その場合は警告を出します）
 - 同じプロセスで3D表示のウィンドウを閉じてから開き直すと、pyqtgraph側の都合で
   描画に失敗することがあります。開き直す場合はプロセスを分けてください
 

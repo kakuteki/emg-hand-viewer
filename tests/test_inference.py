@@ -140,6 +140,19 @@ def test_平滑化が効く():
     assert second == pytest.approx(first)
 
 
+def test_チャンネル数が変わったら窓を捨てる():
+    """データファイルを16chから8chに切り替えても、分かりにくい例外にしない"""
+    model = ShapePickyModel(accepted_ndim=3)
+    inference = make_inference(model, smoothing=0.0)
+
+    for _ in range(5):
+        inference(np.ones(16))
+    angles = inference(np.ones(8))
+
+    assert angles.shape == (20,)
+    assert model.seen_shapes[-1] == (1, DEFAULT_WINDOW_SIZE, 8)
+
+
 def test_リセットで履歴が消える():
     model = ShapePickyModel(accepted_ndim=3)
     inference = make_inference(model)

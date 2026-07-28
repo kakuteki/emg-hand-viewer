@@ -16,8 +16,10 @@ pyqtgraphを最初にimportする前に環境変数を立てておけば防げ�
 """
 
 import os
+import warnings
 
 QT_LIB = "PyQt5"
+ENV_NAME = "PYQTGRAPH_QT_LIB"
 
 
 def ensure() -> str:
@@ -27,13 +29,31 @@ def ensure() -> str:
     pyqtgraphをimportする前に呼ぶこと。importの並べ替えで順序が
     崩れないよう、importではなく関数呼び出しの形にしてある。
 
+    このライブラリはPyQt5を直接importするので、環境変数で別のQtを
+    指定されるとやはり2種類のQtが載ってしまう。黙って落ちないよう
+    警告を出す。
+
     Returns
     -------
     str
         実際に指定されているQtの名前
     """
-    os.environ.setdefault("PYQTGRAPH_QT_LIB", QT_LIB)
-    return os.environ["PYQTGRAPH_QT_LIB"]
+    current = os.environ.get(ENV_NAME)
+
+    if current is None:
+        os.environ[ENV_NAME] = QT_LIB
+        return QT_LIB
+
+    if current != QT_LIB:
+        warnings.warn(
+            f"{ENV_NAME}={current} が指定されていますが、"
+            f"このライブラリは{QT_LIB}を使います。"
+            f"Qtが2種類読み込まれて異常終了することがあります。",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
+    return current
 
 
 ensure()

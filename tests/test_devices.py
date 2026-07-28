@@ -47,6 +47,14 @@ def test_ファイル再生はループする():
     assert seen == [0.0, 2.0, 4.0, 0.0, 2.0]
 
 
+def test_空のデータでも止まる():
+    """長さ0のデータでループ指定しても、無限に回らずに終わること"""
+    source = FilePlaybackSource(emg_data=np.zeros((0, 8), dtype=np.float32), loop=True)
+    source.connect()
+
+    assert list(source.stream()) == []
+
+
 def test_ファイル再生はリセットで先頭に戻る():
     data = np.arange(6, dtype=np.float32).reshape(3, 2)
     source = FilePlaybackSource(emg_data=data, loop=False)

@@ -47,6 +47,43 @@ def test_読み込みと絞り込み(dataset):
     assert segment.n_joints == 22
 
 
+def test_中身が空のセグメントばかりでも止まる(tmp_path):
+    """長さ0のセグメントだけのデータでループ指定しても回り続けないこと"""
+    segments = [make_segment(1, 1, n_samples=0), make_segment(1, 2, n_samples=0)]
+    path = tmp_path / "empty_segments.npz"
+    np.savez(path, segments=np.array(segments, dtype=object))
+
+    source = NinaproDataSource(filepath=str(path), loop=True)
+    assert source.connect()
+
+    assert list(source.stream()) == []
+
+
+def test_長さ0のセグメントは飛ばす(tmp_path):
+    segments = [make_segment(1, 1, n_samples=0), make_segment(1, 2, n_samples=3)]
+    path = tmp_path / "mixed_segments.npz"
+    np.savez(path, segments=np.array(segments, dtype=object))
+
+    source = NinaproDataSource(filepath=str(path), loop=True)
+    source.connect()
+
+    stream = source.stream()
+    assert [next(stream)[2]["sample_idx"] for _ in range(5)] == [0, 1, 2, 0, 1]
+
+
+def test_終端まで再生しても進捗を読める(tmp_path):
+    segments = [make_segment(1, 1, n_samples=2)]
+    path = tmp_path / "short.npz"
+    np.savez(path, segments=np.array(segments, dtype=object))
+
+    source = NinaproDataSource(filepath=str(path), loop=False)
+    source.connect()
+    assert len(list(source.stream())) == 2
+
+    seg_idx, n_segments, _, _ = source.current_progress
+    assert seg_idx < n_segments
+
+
 def test_無いファイルは例外(tmp_path):
     with pytest.raises(FileNotFoundError):
         NinaproLoader(str(tmp_path / "missing.npz"))
