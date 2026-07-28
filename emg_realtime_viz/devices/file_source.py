@@ -92,12 +92,26 @@ class NinaproDataSource(DataSource):
         if not self._connected:
             raise RuntimeError("Not connected. Call connect() first.")
 
+        # 位置を進めてからyieldする。yieldの後で進めると、
+        # 中断中にreset()されても次の再開時に上書きしてしまい、
+        # 画面のResetボタンを押しても先頭に戻らない。
         while True:
+            if self._current_segment_idx >= len(self._segments):
+                if not self.loop:
+                    break
+                self._current_segment_idx = 0
+                self._current_sample_idx = 0
+
             segment = self._segments[self._current_segment_idx]
 
-            # 現在のサンプルを取得
-            emg = segment.emg[self._current_sample_idx : self._current_sample_idx + 1]
-            glove = segment.glove[self._current_sample_idx : self._current_sample_idx + 1]
+            if self._current_sample_idx >= segment.n_samples:
+                self._current_sample_idx = 0
+                self._current_segment_idx += 1
+                continue
+
+            sample_idx = self._current_sample_idx
+            emg = segment.emg[sample_idx : sample_idx + 1]
+            glove = segment.glove[sample_idx : sample_idx + 1]
 
             metadata = {
                 "subject_id": segment.subject_id,
@@ -105,24 +119,13 @@ class NinaproDataSource(DataSource):
                 "exercise_id": segment.exercise_id,
                 "repetition": segment.repetition,
                 "segment_idx": self._current_segment_idx,
-                "sample_idx": self._current_sample_idx,
+                "sample_idx": sample_idx,
                 "total_samples": segment.n_samples,
             }
 
+            self._current_sample_idx = sample_idx + 1
+
             yield emg, glove, metadata
-
-            # インデックス更新
-            self._current_sample_idx += 1
-
-            if self._current_sample_idx >= segment.n_samples:
-                self._current_sample_idx = 0
-                self._current_segment_idx += 1
-
-                if self._current_segment_idx >= len(self._segments):
-                    if self.loop:
-                        self._current_segment_idx = 0
-                    else:
-                        break
 
     def reset(self):
         """ストリームを先頭にリセット"""
@@ -188,26 +191,28 @@ class FilePlaybackSource(DataSource):
     ) -> Generator[Tuple[np.ndarray, Optional[np.ndarray], Dict[str, Any]], None, None]:
         n_samples = len(self.emg_data)
 
+        # NinaproDataSourceと同じ理由で、進めてからyieldする
         while True:
-            emg = self.emg_data[self._current_idx : self._current_idx + 1]
+            if self._current_idx >= n_samples:
+                if not self.loop:
+                    break
+                self._current_idx = 0
+
+            idx = self._current_idx
+            emg = self.emg_data[idx : idx + 1]
             glove = None
             if self.glove_data is not None:
-                glove = self.glove_data[self._current_idx : self._current_idx + 1]
+                glove = self.glove_data[idx : idx + 1]
 
             metadata = {
-                "sample_idx": self._current_idx,
+                "sample_idx": idx,
                 "total_samples": n_samples,
-                "progress": self._current_idx / n_samples,
+                "progress": idx / n_samples,
             }
 
-            yield emg, glove, metadata
+            self._current_idx = idx + 1
 
-            self._current_idx += 1
-            if self._current_idx >= n_samples:
-                if self.loop:
-                    self._current_idx = 0
-                else:
-                    break
+            yield emg, glove, metadata
 
     def reset(self):
         self._current_idx = 0

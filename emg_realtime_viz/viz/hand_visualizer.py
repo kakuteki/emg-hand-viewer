@@ -131,10 +131,14 @@ class HandVisualizer:
         segments = data["segments"]
 
         # 利用可能な被験者・動作・エクササイズを収集
+        if len(segments) == 0:
+            raise ValueError(f"データが1件も入っていません: {self.filepath}")
+
         self._subjects = set()
         self._movements = set()
         self._exercises = set()
         self._segment_info = []
+        self._n_channels = 16
 
         for seg in segments:
             if hasattr(seg, "item"):
@@ -144,6 +148,11 @@ class HandVisualizer:
             movement = seg.get("movement", 0)
             exercise_id = seg.get("exercise_id", 0)
             repetition = seg.get("repetition", 0)
+
+            # チャンネル数はデータから読む（Myo1本なら8ch、2本なら16ch）
+            emg = seg.get("emg", None)
+            if emg is not None and getattr(emg, "ndim", 0) == 2:
+                self._n_channels = int(emg.shape[1])
 
             self._subjects.add(subject_id)
             self._movements.add(movement)
@@ -167,6 +176,7 @@ class HandVisualizer:
             f"  Movements: {min(self._movements)}-{max(self._movements)} ({len(self._movements)} types)"
         )
         print(f"  Exercises: {self._exercises}")
+        print(f"  Channels: {self._n_channels}")
 
     def _create_source(self, subject_id: int, movement: int):
         """指定された被験者・動作のデータソースを作成"""
@@ -179,7 +189,7 @@ class HandVisualizer:
             subject_ids=[subject_id],
             movements=[movement],
             loop=True,
-            n_channels=16,
+            n_channels=self._n_channels,
             sample_rate=200.0,
         )
 
@@ -369,9 +379,9 @@ class HandVisualizer:
         # レジェンド
         legend_group = QtWidgets.QGroupBox("Legend")
         legend_layout = QtWidgets.QVBoxLayout(legend_group)
-        legend_layout.addWidget(QtWidgets.QLabel("Blue: Ground Truth (Left)"))
-        legend_layout.addWidget(QtWidgets.QLabel("Green: Prediction (Right)"))
-        legend_layout.addWidget(QtWidgets.QLabel("Purple: EMG Trajectory (Center)"))
+        legend_layout.addWidget(QtWidgets.QLabel("Blue: Ground Truth"))
+        legend_layout.addWidget(QtWidgets.QLabel("Green: Prediction"))
+        legend_layout.addWidget(QtWidgets.QLabel("Purple: EMG Trajectory"))
         layout.addWidget(legend_group)
 
         return panel
@@ -418,6 +428,9 @@ class HandVisualizer:
         self._update_emg_scatter()
         self._btn_play.setEnabled(True)
         self._btn_pause.setEnabled(False)
+        # 再生開始時に止めたデータ選択を戻す
+        self._subject_combo.setEnabled(True)
+        self._movement_combo.setEnabled(True)
         self._status_bar.showMessage("Reset")
 
     def _on_speed_change(self, value):

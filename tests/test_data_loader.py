@@ -83,6 +83,7 @@ def test_ループ再生は先頭に戻る(dataset):
 
 
 def test_リセットで先頭に戻る(dataset):
+    """再生中にResetを押しても、次のサンプルが先頭に戻ること"""
     source = NinaproDataSource(filepath=str(dataset), subject_ids=[1], movements=[1])
     source.connect()
 
@@ -92,3 +93,4 @@ def test_リセットで先頭に戻る(dataset):
     source.reset()
 
     assert source.current_progress[2] == 0
+    assert next(stream)[2]["sample_idx"] == 0

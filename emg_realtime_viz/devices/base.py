@@ -48,6 +48,16 @@ class DataSource(ABC):
         """データソースから切断"""
         self._connected = False
 
+    def reset(self):  # noqa: B027  中身が空なのは意図（既定は何もしない）
+        """
+        ストリームを先頭に戻す
+
+        巻き戻せるデータソース（ファイル再生）だけが実際に動く。
+        実機のように巻き戻せないものは何もしない。
+        画面のResetボタンはデータソースの種類を問わず呼ぶため、
+        ここで受け止めないとMyo使用時にAttributeErrorで落ちる。
+        """
+
     @abstractmethod
     def stream(
         self,
