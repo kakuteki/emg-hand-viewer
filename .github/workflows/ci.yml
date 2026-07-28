@@ -51,15 +51,18 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
       - name: Check package imports
         run: |
-          python -c "from emg_realtime_viz.core import feature_extractor"
-          python -c "from emg_realtime_viz.core import data_loader"
-          python -c "from emg_realtime_viz.core import stream"
+          python -c "import emg_realtime_viz; print(emg_realtime_viz.__version__)"
+          python -c "from emg_realtime_viz.core import feature_extractor, data_loader, stream"
+          python -c "from emg_realtime_viz.core import glove, inference"
           python -c "from emg_realtime_viz.devices import base, file_source"
           echo "All imports successful"
+
+      - name: Run tests
+        run: pytest -q
 
       - name: Syntax check all Python files
         run: python -m py_compile $(find . -name "*.py" -not -path "./.git/*")
