@@ -45,11 +45,22 @@ except ImportError:
 from .hand_model import DualHandModel3D
 
 
-class _SignalEmitter(QObject):
-    """Qt シグナル用のエミッター"""
+def _create_signal_emitter():
+    """
+    Qt シグナル用のエミッターを作る
 
-    update_signal = pyqtSignal()
-    close_signal = pyqtSignal()
+    QObjectを継承したクラスはPyQtが無いと定義できないため、
+    モジュールの読み込み時ではなく必要になった時点で組み立てる。
+    こうしないとPyQtの無い環境でライブラリ全体が読み込めない。
+    """
+    if not HAS_PYQT:
+        raise ImportError("PyQt5 and pyqtgraph are required")
+
+    class _SignalEmitter(QObject):
+        update_signal = pyqtSignal()
+        close_signal = pyqtSignal()
+
+    return _SignalEmitter()
 
 
 class HandViewer:
@@ -221,7 +232,7 @@ class HandViewer:
             self._app = QtWidgets.QApplication([])
 
         # シグナルエミッター
-        self._emitter = _SignalEmitter()
+        self._emitter = _create_signal_emitter()
         self._emitter.close_signal.connect(self._on_close_signal)
 
         # ウィンドウ作成
@@ -322,8 +333,8 @@ class HandViewer:
         # レジェンド
         legend_group = QtWidgets.QGroupBox("Legend")
         legend_layout = QtWidgets.QVBoxLayout(legend_group)
-        legend_layout.addWidget(QtWidgets.QLabel("🔵 Ground Truth (Left)"))
-        legend_layout.addWidget(QtWidgets.QLabel("🟢 Prediction (Right)"))
+        legend_layout.addWidget(QtWidgets.QLabel("Blue: Ground Truth (Left)"))
+        legend_layout.addWidget(QtWidgets.QLabel("Green: Prediction (Right)"))
         layout.addWidget(legend_group)
 
         layout.addStretch()
