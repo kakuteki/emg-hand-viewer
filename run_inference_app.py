@@ -34,6 +34,8 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import QFileDialog, QMessageBox
 
+from emg_realtime_viz.core.glove import glove_to_angles
+from emg_realtime_viz.core.inference import energy_demo_model, load_torch_model
 from emg_realtime_viz.viz.hand_model import DualHandModel3D
 
 # デフォルトディレクトリ
@@ -316,7 +318,7 @@ class InferenceApp(QtWidgets.QMainWindow):
         model_data = self.model_combo.currentData()
 
         if model_data == "demo":
-            self.inference_model = self._create_demo_model()
+            self.inference_model = energy_demo_model()
             self.current_model_path = None
             self.model_info_label.setText("Demo model: EMG energy-based estimation")
         else:
@@ -329,56 +331,20 @@ class InferenceApp(QtWidgets.QMainWindow):
     def _load_pytorch_model(self, model_path: Path):
         """PyTorchモデルをロード"""
         try:
-            import torch
-
             self.status_label.setText(f"Loading model: {model_path.name}...")
             QtWidgets.QApplication.processEvents()
 
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-            # モデルをロード
-            model = torch.load(str(model_path), map_location=device)
-            model.eval()
-
-            # 推論関数を作成
-            state = {"prev": None}
-
-            def inference(emg: np.ndarray) -> np.ndarray:
-                with torch.no_grad():
-                    if emg.ndim > 1:
-                        emg = emg.mean(axis=0) if emg.shape[1] == 16 else emg.mean(axis=1)
-
-                    x = torch.tensor(emg, dtype=torch.float32).unsqueeze(0).to(device)
-                    y = model(x).cpu().numpy().flatten()
-
-                    # 0-1にクリップ
-                    y = np.clip(y, 0, 1)
-
-                    # 出力が22次元の場合は20次元に変換
-                    if len(y) == 22:
-                        angles = np.zeros(20)
-                        angles[0:4] = y[0:4]
-                        angles[4:8] = y[4:8]
-                        angles[8:12] = y[8:12]
-                        angles[12:16] = y[12:16]
-                        angles[16:20] = y[16:20]
-                        y = angles
-
-                    # スムージング
-                    if state["prev"] is not None:
-                        y = 0.3 * y + 0.7 * state["prev"]
-                    state["prev"] = y
-
-                    return y
+            inference = load_torch_model(str(model_path))
 
             self.inference_model = inference
             self.current_model_path = model_path
-            self.model_info_label.setText(f"Loaded: {model_path.name}\nDevice: {device}")
+            self.model_info_label.setText(f"Loaded: {model_path.name}\nDevice: {inference.device}")
             self.status_label.setText("Model loaded")
 
         except Exception as e:
             self.model_info_label.setText(f"Error: {str(e)[:100]}")
-            self.inference_model = self._create_demo_model()
+            self.inference_model = energy_demo_model()
+            self.current_model_path = None
             QMessageBox.warning(
                 self, "Model Load Error", f"Failed to load model:\n{e}\n\nUsing demo model."
             )
@@ -586,7 +552,7 @@ class InferenceApp(QtWidgets.QMainWindow):
             return
 
         if self.inference_model is None:
-            self.inference_model = self._create_demo_model()
+            self.inference_model = energy_demo_model()
 
         self.playing = not self.playing
 
@@ -626,11 +592,24 @@ class InferenceApp(QtWidgets.QMainWindow):
 
         # Ground Truth
         glove_frame = glove[self.current_frame_idx, :]
-        gt_angles = self._normalize_glove(glove_frame)
+        gt_angles = glove_to_angles(glove_frame)
 
-        # 推論
+        # 推論（EMGの生値をそのまま渡す）
         if self.inference_model:
-            pred_angles = self.inference_model(emg_frame)
+            try:
+                pred_angles = self.inference_model(emg_frame)
+            except Exception as e:
+                self.playing = False
+                self.play_btn.setText("Play")
+                self.timer.stop()
+                self.status_label.setText("Inference stopped")
+                QMessageBox.warning(
+                    self,
+                    "Inference Error",
+                    f"推論に失敗しました:\n{e}\n\nデモモデルに切り替えます。",
+                )
+                self.inference_model = energy_demo_model()
+                return
         else:
             pred_angles = gt_angles.copy()
 
@@ -665,101 +644,6 @@ class InferenceApp(QtWidgets.QMainWindow):
                 self.status_label.setText("Looping...")
 
     # ========== ユーティリティ ==========
-
-    def _normalize_glove(self, glove: np.ndarray) -> np.ndarray:
-        """Gloveデータを正規化"""
-        glove_min = np.array(
-            [
-                -30,
-                -30,
-                -10,
-                -10,
-                -20,
-                -10,
-                -10,
-                -10,
-                -20,
-                -10,
-                -10,
-                -10,
-                -20,
-                -10,
-                -10,
-                -10,
-                -20,
-                -10,
-                -10,
-                -10,
-                0,
-                0,
-            ]
-        )
-        glove_max = np.array(
-            [
-                100,
-                100,
-                100,
-                100,
-                120,
-                100,
-                100,
-                100,
-                120,
-                100,
-                100,
-                100,
-                120,
-                100,
-                100,
-                100,
-                120,
-                100,
-                100,
-                100,
-                50,
-                50,
-            ]
-        )
-
-        normalized = (glove - glove_min) / (glove_max - glove_min + 1e-8)
-        normalized = np.clip(normalized, 0, 1)
-
-        angles = np.zeros(20)
-        angles[0:4] = normalized[0:4]
-        angles[4:8] = normalized[4:8]
-        angles[8:12] = normalized[8:12]
-        angles[12:16] = normalized[12:16]
-        angles[16:20] = normalized[16:20]
-
-        return angles
-
-    def _create_demo_model(self) -> Callable:
-        """デモ用推論モデル"""
-        state = {"prev": np.zeros(20)}
-
-        def inference(emg: np.ndarray) -> np.ndarray:
-            energy = np.abs(emg)
-            energy = np.clip(energy / 100, 0, 1)
-
-            angles = np.zeros(20)
-
-            # チャンネルを指にマッピング
-            for finger in range(5):
-                base = finger * 4
-                ch_start = finger * 3
-                ch_end = min(ch_start + 3, len(energy))
-                finger_energy = np.mean(energy[ch_start:ch_end]) if ch_start < len(energy) else 0
-
-                for joint in range(4):
-                    angles[base + joint] = finger_energy * (0.7 + joint * 0.1)
-
-            # スムージング
-            smoothed = 0.3 * angles + 0.7 * state["prev"]
-            state["prev"] = smoothed
-
-            return np.clip(smoothed, 0, 1)
-
-        return inference
 
     def closeEvent(self, event):
         """ウィンドウクローズ時"""

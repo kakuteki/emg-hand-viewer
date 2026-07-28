@@ -42,6 +42,7 @@ except ImportError:
     pass
 
 from ..core.feature_extractor import FeatureExtractor
+from ..core.glove import glove_to_angles
 from ..devices.file_source import NinaproDataSource
 from .hand_model import DualHandModel3D
 
@@ -282,16 +283,16 @@ class HandVisualizer:
         playback_group = QtWidgets.QGroupBox("Playback")
         playback_layout = QtWidgets.QHBoxLayout(playback_group)
 
-        self._btn_play = QtWidgets.QPushButton("▶ Play")
+        self._btn_play = QtWidgets.QPushButton("Play")
         self._btn_play.clicked.connect(self._on_play)
         playback_layout.addWidget(self._btn_play)
 
-        self._btn_pause = QtWidgets.QPushButton("⏸ Pause")
+        self._btn_pause = QtWidgets.QPushButton("Pause")
         self._btn_pause.clicked.connect(self._on_pause)
         self._btn_pause.setEnabled(False)
         playback_layout.addWidget(self._btn_pause)
 
-        self._btn_reset = QtWidgets.QPushButton("⏹ Reset")
+        self._btn_reset = QtWidgets.QPushButton("Reset")
         self._btn_reset.clicked.connect(self._on_reset)
         playback_layout.addWidget(self._btn_reset)
 
@@ -368,9 +369,9 @@ class HandVisualizer:
         # レジェンド
         legend_group = QtWidgets.QGroupBox("Legend")
         legend_layout = QtWidgets.QVBoxLayout(legend_group)
-        legend_layout.addWidget(QtWidgets.QLabel("🔵 Ground Truth (Left)"))
-        legend_layout.addWidget(QtWidgets.QLabel("🟢 Prediction (Right)"))
-        legend_layout.addWidget(QtWidgets.QLabel("🟣 EMG Trajectory (Center)"))
+        legend_layout.addWidget(QtWidgets.QLabel("Blue: Ground Truth (Left)"))
+        legend_layout.addWidget(QtWidgets.QLabel("Green: Prediction (Right)"))
+        legend_layout.addWidget(QtWidgets.QLabel("Purple: EMG Trajectory (Center)"))
         layout.addWidget(legend_group)
 
         return panel
@@ -486,27 +487,28 @@ class HandVisualizer:
 
             for _ in range(samples_per_update):
                 emg, glove, metadata = next(self._data_generator)
+                emg_frame = emg.flatten()
 
-                # 特徴量抽出
-                self.feature_extractor.update(emg.flatten())
+                # 特徴量抽出（EMG軌跡の表示に使う）
+                self.feature_extractor.update(emg_frame)
 
                 if self.feature_extractor.is_ready:
                     features = self.feature_extractor.extract()
-
-                    # EMG軌跡更新
                     self._update_emg_trail(features, metadata)
 
-                    # 推論実行
-                    if self.inference_model is not None:
-                        try:
-                            self._current_pred_angles = self.inference_model(features)
-                        except Exception as e:
-                            print(f"Inference error: {e}")
-                            self._current_pred_angles = None
+                # 推論はEMGの生値をそのまま渡す（学習時の入力に合わせる）
+                if self.inference_model is not None:
+                    try:
+                        self._current_pred_angles = self.inference_model(emg_frame)
+                    except Exception as e:
+                        print(f"Inference error: {e}")
+                        self.inference_model = None
+                        self._current_pred_angles = None
+                        self._status_bar.showMessage(f"推論を停止しました: {e}")
 
-                    # 実測値（gloveデータ）
-                    if glove is not None:
-                        self._current_gt_angles = self._normalize_glove_data(glove.flatten())
+                # 実測値（gloveデータ）
+                if glove is not None:
+                    self._current_gt_angles = glove_to_angles(glove.flatten())
 
             # 手モデル更新
             angle_scale = self._angle_scale_slider.value() / 10.0
@@ -566,74 +568,6 @@ class HandVisualizer:
 
         sizes = np.linspace(3, 12, n_points)
         self._emg_scatter.setData(pos=pos, color=colors, size=sizes)
-
-    def _normalize_glove_data(self, glove: np.ndarray) -> np.ndarray:
-        """Ninapro DB5のgloveデータを0-1の範囲に正規化"""
-        glove_min = np.array(
-            [
-                -30,
-                -30,
-                -10,
-                -10,
-                -10,
-                -10,
-                -10,
-                -10,
-                -30,
-                -30,
-                -10,
-                -10,
-                -30,
-                -30,
-                -10,
-                -10,
-                -10,
-                -10,
-                -10,
-                -10,
-                -10,
-                -10,
-            ]
-        )
-
-        glove_max = np.array(
-            [
-                100,
-                100,
-                100,
-                100,
-                100,
-                100,
-                100,
-                100,
-                500,
-                100,
-                100,
-                100,
-                100,
-                100,
-                100,
-                100,
-                100,
-                100,
-                100,
-                100,
-                100,
-                100,
-            ]
-        )
-
-        normalized = (glove - glove_min) / (glove_max - glove_min + 1e-8)
-        normalized = np.clip(normalized, 0, 1)
-
-        angles = np.zeros(20)
-        angles[0:4] = normalized[0:4]
-        angles[4:8] = normalized[4:8]
-        angles[8:12] = normalized[8:12]
-        angles[12:16] = normalized[12:16]
-        angles[16:20] = normalized[16:20]
-
-        return angles
 
     def _update_hand_models(self, angle_scale: float):
         """手モデル更新"""
